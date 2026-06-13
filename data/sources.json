@@ -1,0 +1,71 @@
+{
+  "_comment": "News Radar source configuration. Add or remove sources here — no code changes needed.",
+  "_schema_version": "1.0",
+  "sources": [
+    {
+      "id": "hn-frontpage-rss",
+      "type": "rss",
+      "name": "Hacker News Front Page",
+      "enabled": true,
+      "url": "https://hnrss.org/frontpage",
+      "limit": 30,
+      "tags": ["tech", "programming", "startup"]
+    },
+    {
+      "id": "hn-api",
+      "type": "hackernews",
+      "name": "Hacker News Top Stories (API)",
+      "enabled": true,
+      "limit": 30,
+      "tags": ["tech", "programming"]
+    },
+    {
+      "id": "reddit-programming",
+      "type": "reddit",
+      "name": "r/programming",
+      "enabled": true,
+      "subreddit": "programming",
+      "sort": "hot",
+      "limit": 25,
+      "tags": ["programming", "software"]
+    },
+    {
+      "id": "reddit-machinelearning",
+      "type": "reddit",
+      "name": "r/MachineLearning",
+      "enabled": true,
+      "subreddit": "MachineLearning",
+      "sort": "hot",
+      "limit": 20,
+      "tags": ["AI", "ML", "research"]
+    },
+    {
+      "id": "reddit-python",
+      "type": "reddit",
+      "name": "r/Python",
+      "enabled": true,
+      "subreddit": "Python",
+      "sort": "hot",
+      "limit": 20,
+      "tags": ["python", "programming"]
+    },
+    {
+      "id": "techcrunch-rss",
+      "type": "rss",
+      "name": "TechCrunch",
+      "enabled": false,
+      "url": "https://techcrunch.com/feed/",
+      "limit": 20,
+      "tags": ["tech", "startup", "business"]
+    },
+    {
+      "id": "github-releases-python",
+      "type": "rss",
+      "name": "GitHub Releases — Python",
+      "enabled": false,
+      "url": "https://github.com/python/cpython/releases.atom",
+      "limit": 10,
+      "tags": ["python", "releases"]
+    }
+  ]
+}
