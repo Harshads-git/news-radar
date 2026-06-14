@@ -21,12 +21,11 @@ through the entire system.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
-
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Source Configuration Models  (loaded from data/sources.json)
@@ -145,7 +144,7 @@ class NewsItem(BaseModel):
         description="Publication timestamp from the source.",
     )
     fetched_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="When this item was fetched by our scraper.",
     )
 
@@ -171,6 +170,7 @@ class NewsItem(BaseModel):
     def clean_title(cls, v: str) -> str:
         """Collapse multiple spaces and strip leading/trailing whitespace."""
         import re
+
         return re.sub(r"\s+", " ", str(v).strip())
 
     def __hash__(self) -> int:
@@ -191,7 +191,7 @@ class ScoredItem(BaseModel):
     """
     A NewsItem that has been evaluated by the AI scoring engine.
 
-    The ai_score field (0–10) is the primary ranking signal for the briefing.
+    The ai_score field (0-10) is the primary ranking signal for the briefing.
     Items below settings.score_threshold are dropped before summarization.
     """
 
@@ -211,7 +211,7 @@ class ScoredItem(BaseModel):
 
     # Metadata
     scored_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="When this item was scored.",
     )
     model_used: str = Field(
@@ -254,7 +254,7 @@ class SummarizedItem(BaseModel):
     # AI enrichment
     ai_summary: str = Field(
         default="",
-        description="AI-generated 2–3 sentence summary of the story.",
+        description="AI-generated 2-3 sentence summary of the story.",
     )
     web_context: str = Field(
         default="",
@@ -263,7 +263,7 @@ class SummarizedItem(BaseModel):
 
     # Metadata
     summarized_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
     )
     model_used: str = Field(default="")
     from_cache: bool = Field(default=False)
@@ -331,7 +331,7 @@ class Briefing(BaseModel):
         description="Pipeline run statistics.",
     )
     generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="Timestamp when this briefing was generated.",
     )
 

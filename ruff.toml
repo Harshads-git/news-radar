@@ -1,0 +1,118 @@
+# ruff.toml
+# =========
+# Ruff is an extremely fast Python linter and formatter written in Rust.
+# This file configures rules, ignores, and per-file overrides for News Radar.
+#
+# Docs: https://docs.astral.sh/ruff/configuration/
+# Rule reference: https://docs.astral.sh/ruff/rules/
+
+# ---------------------------------------------------------------------------
+# Core settings
+# ---------------------------------------------------------------------------
+
+line-length = 100
+indent-width = 4
+target-version = "py311"
+src = ["src", "tests"]
+
+# Exclude files/folders that should never be linted
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+    "dist",
+    "build",
+    "data",
+    "docs",
+]
+
+# ---------------------------------------------------------------------------
+# Linting
+# ---------------------------------------------------------------------------
+
+[lint]
+select = [
+    "E",    # pycodestyle — style errors
+    "W",    # pycodestyle — style warnings
+    "F",    # Pyflakes — undefined names, unused imports, etc.
+    "I",    # isort — import ordering
+    "B",    # flake8-bugbear — likely bugs and design issues
+    "C4",   # flake8-comprehensions — simplify comprehensions
+    "UP",   # pyupgrade — modernise Python syntax (e.g. Optional[X] → X | None)
+    "SIM",  # flake8-simplify — unnecessary code patterns
+    "TCH",  # flake8-type-checking — move type-only imports into TYPE_CHECKING block
+    "RUF",  # Ruff-specific rules
+    "N",    # pep8-naming — naming conventions
+    "ANN",  # flake8-annotations — type annotation enforcement
+]
+
+ignore = [
+    # Line length handled by formatter, not lint
+    "E501",
+
+    # Allow missing return annotation on __init__
+    "ANN204",
+
+    # Allow f-strings in logging (we use rich, not stdlib logging)
+    "G004",
+
+    # Allow print() in scripts and tests
+    "T201",
+
+    # Allow missing docstrings in test methods
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+
+    # Allow `Any` in type hints
+    "ANN401",
+
+    # Allow missing annotations on some args (relaxed for this project stage)
+    "ANN001",
+    "ANN002",
+    "ANN003",
+    "ANN201",
+    "ANN202",
+]
+
+# Allow these "fixable" rules to be auto-corrected by `ruff check --fix`
+fixable = ["ALL"]
+
+# Don't auto-remove unused imports in __init__.py (they're re-exports)
+unfixable = []
+
+# ---------------------------------------------------------------------------
+# Per-file rule overrides
+# ---------------------------------------------------------------------------
+
+[lint.per-file-ignores]
+# Tests can use assert statements and don't need full type annotations
+"tests/**/*.py" = ["S101", "ANN", "SIM117", "N"]
+# Scripts can be less strict
+"scripts/**/*.py" = ["ANN", "INP001"]
+# Init files can have star imports for re-exporting
+"src/**/__init__.py" = ["F401"]
+
+# ---------------------------------------------------------------------------
+# isort (import ordering)
+# ---------------------------------------------------------------------------
+
+[lint.isort]
+known-first-party = ["src"]
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+# ---------------------------------------------------------------------------
+# Formatter (replaces Black)
+# ---------------------------------------------------------------------------
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 88

@@ -15,21 +15,19 @@ Tests verify:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from src.models import (
     Briefing,
-    BriefingMetadata,
     NewsItem,
     ScoredItem,
     SourceConfig,
     SourcesConfig,
     SummarizedItem,
 )
-
 
 # ===========================================================================
 # SourceConfig Tests
@@ -102,9 +100,7 @@ class TestSourcesConfig:
         config = SourcesConfig(
             sources=[
                 SourceConfig(id="a", type="hackernews", name="HN", enabled=True),
-                SourceConfig(
-                    id="b", type="rss", name="RSS", url="https://ex.com", enabled=False
-                ),
+                SourceConfig(id="b", type="rss", name="RSS", url="https://ex.com", enabled=False),
                 SourceConfig(id="c", type="hackernews", name="HN2", enabled=True),
             ]
         )
@@ -167,7 +163,7 @@ class TestNewsItem:
         assert item.title == "Hello World"
 
     def test_equality_based_on_url(self):
-        kwargs = dict(source_id="s", source_name="S", source_type="rss", title="T")
+        kwargs = {"source_id": "s", "source_name": "S", "source_type": "rss", "title": "T"}
         a = NewsItem(url="https://example.com/a", **kwargs)
         b = NewsItem(url="https://example.com/a", **kwargs)
         c = NewsItem(url="https://example.com/b", **kwargs)
@@ -175,7 +171,7 @@ class TestNewsItem:
         assert a != c
 
     def test_hash_based_on_url(self):
-        kwargs = dict(source_id="s", source_name="S", source_type="rss", title="T")
+        kwargs = {"source_id": "s", "source_name": "S", "source_type": "rss", "title": "T"}
         a = NewsItem(url="https://example.com/a", **kwargs)
         b = NewsItem(url="https://example.com/a", **kwargs)
         assert hash(a) == hash(b)

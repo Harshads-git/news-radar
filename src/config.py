@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,   # OPENAI_API_KEY == openai_api_key
-        extra="ignore",         # ignore unknown env vars silently
+        case_sensitive=False,  # OPENAI_API_KEY == openai_api_key
+        extra="ignore",  # ignore unknown env vars silently
     )
 
     # ------------------------------------------------------------------
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         default=6,
         ge=0,
         le=10,
-        description="Minimum AI score (0–10) for a story to appear in the briefing.",
+        description="Minimum AI score (0-10) for a story to appear in the briefing.",
     )
 
     max_briefing_items: int = Field(
