@@ -58,12 +58,42 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [tool.pytest.ini_options]
+# Run async tests automatically without @pytest.mark.asyncio decorator
 asyncio_mode = "auto"
+
+# Where to find tests
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=src --cov-report=term-missing"
+
+# Default flags: verbose output + coverage
+addopts = [
+    "--verbose",
+    "--tb=short",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=80",
+    "--strict-markers",
+    "-q",
+]
+
+# Custom markers (avoids PytestUnknownMarkWarning)
+markers = [
+    "unit: fast unit tests with no I/O",
+    "integration: tests that make real network or filesystem calls",
+    "slow: tests that take more than 1 second",
+]
+
+# Filter warnings to avoid noise
+filterwarnings = [
+    "error",                                              # treat warnings as errors
+    "ignore::DeprecationWarning:pydantic",                # pydantic internal deprecations
+    "ignore::DeprecationWarning:pytest_asyncio",          # asyncio plugin warnings
+    "ignore::PendingDeprecationWarning",
+]
+
 
 [tool.ruff]
 line-length = 100
