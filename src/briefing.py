@@ -181,8 +181,8 @@ class BriefingBuilder:
         lines = []
         for i, si in enumerate(summarized_items[:10], 1):  # cap at top 10
             lines.append(
-                f"  {i}. [{si.scored_item.ai_score}/10] {si.ai_headline}"
-                f" — {si.scored_item.item.source_name}"
+                f"  {i}. [{si.scored.ai_score}/10] {si.ai_headline or si.title}"
+                f" -- {si.scored.item.source_name}"
             )
         story_list = "\n".join(lines)
 
@@ -222,13 +222,15 @@ class BriefingBuilder:
             return f"No significant stories found for {date_str}."
 
         top = summarized_items[0]
-        sources = list({si.scored_item.item.source_name for si in summarized_items})
+        sources = list({si.scored.item.source_name for si in summarized_items})
         sources_str = ", ".join(sources[:3])
+
+        headline = top.ai_headline or top.title
 
         return (
             f"Today's briefing for {date_str} features {len(summarized_items)} "
             f"curated stories from {sources_str} and other sources.\n\n"
-            f"Top story: {top.ai_headline}\n\n"
+            f"Top story: {headline}\n\n"
             f"Browse the items below for full summaries and key takeaways."
         )
 
@@ -250,7 +252,7 @@ class BriefingBuilder:
         """
         counter: Counter[str] = Counter()
         for si in summarized_items:
-            for topic in si.scored_item.ai_topics:
+            for topic in si.scored.ai_topics:
                 if topic:
                     counter[topic.lower().strip()] += 1
 

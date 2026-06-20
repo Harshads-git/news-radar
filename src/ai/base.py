@@ -183,6 +183,7 @@ class BaseAIProvider(ABC):
         return ScoredItem(
             item=item,
             ai_score=score,
+            ai_score_reason=reason,
             ai_reason=reason,
             ai_topics=topics,
             model_used=self.model,

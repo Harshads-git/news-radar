@@ -251,8 +251,9 @@ class NewsSummarizer:
         from src.models import SummarizedItem
 
         return SummarizedItem(
-            scored_item=scored_item,
+            scored=scored_item,
             ai_headline=headline,
             ai_summary=summary,
             key_points=key_points,
+            model_used=scored_item.model_used,
         )

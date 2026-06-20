@@ -208,6 +208,15 @@ class ScoredItem(BaseModel):
         default="",
         description="One-sentence explanation of why this score was assigned.",
     )
+    # Alias for convenience (used by scorer and tests)
+    ai_reason: str = Field(
+        default="",
+        description="Alias for ai_score_reason — one-sentence explanation.",
+    )
+    ai_topics: list[str] = Field(
+        default_factory=list,
+        description="AI-extracted topic labels for this story (e.g. 'AI', 'Python').",
+    )
 
     # Metadata
     scored_at: datetime = Field(
@@ -254,7 +263,15 @@ class SummarizedItem(BaseModel):
     # AI enrichment
     ai_summary: str = Field(
         default="",
-        description="AI-generated 2-3 sentence summary of the story.",
+        description="AI-generated 3-paragraph summary of the story.",
+    )
+    ai_headline: str = Field(
+        default="",
+        description="AI-generated engaging headline (may differ from original title).",
+    )
+    key_points: list[str] = Field(
+        default_factory=list,
+        description="AI-extracted bullet-point key takeaways.",
     )
     web_context: str = Field(
         default="",
@@ -326,9 +343,20 @@ class Briefing(BaseModel):
         default_factory=list,
         description="Ranked list of stories in this briefing.",
     )
+    executive_summary: str = Field(
+        default="",
+        description="AI-written 2-3 paragraph overview of the day's news.",
+    )
+    top_topics: list[str] = Field(
+        default_factory=list,
+        description="Most frequent AI topics across all items.",
+    )
+    # Convenience flat stats (mirrors BriefingMetadata for quick access)
+    total_fetched: int = Field(default=0, description="Total items fetched across all sources.")
+    total_scored: int = Field(default=0, description="Items that passed the score threshold.")
     metadata: BriefingMetadata = Field(
         default_factory=BriefingMetadata,
-        description="Pipeline run statistics.",
+        description="Detailed pipeline run statistics.",
     )
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
