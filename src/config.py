@@ -89,6 +89,15 @@ class Settings(BaseSettings):
         description="Language for AI-generated summaries and titles.",
     )
 
+    user_interests: str = Field(
+        default="AI, machine learning, Python, open source, developer tools, software engineering",
+        description=(
+            "Comma-separated description of what the reader cares about. "
+            "Used in every AI scoring and summarization prompt. "
+            "Example: 'AI, Python, startup funding, open source'"
+        ),
+    )
+
     # ------------------------------------------------------------------
     # Data & Storage
     # ------------------------------------------------------------------
@@ -118,6 +127,20 @@ class Settings(BaseSettings):
     discord_webhook_url: str = Field(default="", description="Discord webhook URL.")
     slack_webhook_url: str = Field(default="", description="Slack webhook URL.")
     custom_webhook_url: str = Field(default="", description="Generic JSON webhook URL.")
+
+    # ------------------------------------------------------------------
+    # Output
+    # ------------------------------------------------------------------
+
+    docs_dir: Path = Field(
+        default=Path("docs"),
+        description="Directory where GitHub Pages HTML/MD files are written.",
+    )
+
+    github_pages_enabled: bool = Field(
+        default=True,
+        description="If True, write rendered output to docs/ after each run.",
+    )
 
     # ------------------------------------------------------------------
     # Logging
@@ -177,6 +200,46 @@ class Settings(BaseSettings):
     def has_slack(self) -> bool:
         """True if a Slack webhook URL is configured."""
         return bool(self.slack_webhook_url)
+
+    @property
+    def has_any_ai_key(self) -> bool:
+        """True if at least one AI API key is configured."""
+        return self.has_openai or self.has_gemini or self.has_anthropic
+
+    @property
+    def active_model_provider(self) -> str:
+        """Returns the provider name for the configured AI model."""
+        m = self.ai_model.lower()
+        if m.startswith(("gpt", "o1", "o3")):
+            return "openai"
+        if m.startswith("gemini"):
+            return "gemini"
+        if m.startswith("claude"):
+            return "anthropic"
+        return "unknown"
+
+    def validate_ai_config(self) -> list[str]:
+        """
+        Validate that the configured AI model has a corresponding API key.
+
+        Returns a list of warning strings (empty if everything is OK).
+        Use at startup to give clear error messages before the pipeline runs.
+        """
+        warnings: list[str] = []
+        provider = self.active_model_provider
+        if provider == "openai" and not self.has_openai:
+            warnings.append(
+                f"AI_MODEL={self.ai_model!r} requires OPENAI_API_KEY (not set)"
+            )
+        if provider == "gemini" and not self.has_gemini:
+            warnings.append(
+                f"AI_MODEL={self.ai_model!r} requires GEMINI_API_KEY (not set)"
+            )
+        if provider == "anthropic" and not self.has_anthropic:
+            warnings.append(
+                f"AI_MODEL={self.ai_model!r} requires ANTHROPIC_API_KEY (not set)"
+            )
+        return warnings
 
 
 # ---------------------------------------------------------------------------
