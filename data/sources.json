@@ -1,71 +1,146 @@
 {
-  "_comment": "News Radar source configuration. Add or remove sources here — no code changes needed.",
-  "_schema_version": "1.0",
   "sources": [
     {
-      "id": "hn-frontpage-rss",
-      "type": "rss",
-      "name": "Hacker News Front Page",
-      "enabled": true,
-      "url": "https://hnrss.org/frontpage",
-      "limit": 30,
-      "tags": ["tech", "programming", "startup"]
-    },
-    {
-      "id": "hn-api",
+      "id": "hn-api-top",
       "type": "hackernews",
-      "name": "Hacker News Top Stories (API)",
+      "name": "Hacker News — Top Stories",
       "enabled": true,
       "limit": 30,
-      "tags": ["tech", "programming"]
+      "tags": ["tech", "top"],
+      "description": "HN frontpage via Firebase API — includes score and comment count"
     },
     {
-      "id": "reddit-programming",
+      "id": "hn-api-best",
+      "type": "hackernews",
+      "name": "Hacker News — Best Stories",
+      "enabled": true,
+      "limit": 20,
+      "tags": ["tech", "best"],
+      "description": "HN all-time best stories — high-quality evergreen content"
+    },
+    {
+      "id": "hn-rss",
+      "type": "rss",
+      "name": "Hacker News RSS",
+      "url": "https://news.ycombinator.com/rss",
+      "enabled": false,
+      "limit": 30,
+      "tags": ["tech"],
+      "description": "HN RSS feed — disabled by default since hn-api-top is preferred"
+    },
+    {
+      "id": "r-programming",
       "type": "reddit",
       "name": "r/programming",
-      "enabled": true,
       "subreddit": "programming",
       "sort": "hot",
+      "enabled": true,
       "limit": 25,
-      "tags": ["programming", "software"]
+      "tags": ["programming", "software"],
+      "description": "General programming news and discussions"
     },
     {
-      "id": "reddit-machinelearning",
+      "id": "r-machinelearning",
       "type": "reddit",
       "name": "r/MachineLearning",
-      "enabled": true,
       "subreddit": "MachineLearning",
       "sort": "hot",
+      "enabled": true,
       "limit": 20,
-      "tags": ["AI", "ML", "research"]
+      "tags": ["AI", "ML", "research"],
+      "description": "Machine learning research papers and announcements"
     },
     {
-      "id": "reddit-python",
+      "id": "r-python",
       "type": "reddit",
       "name": "r/Python",
-      "enabled": true,
       "subreddit": "Python",
       "sort": "hot",
+      "enabled": true,
       "limit": 20,
-      "tags": ["python", "programming"]
+      "tags": ["Python", "open source"],
+      "description": "Python ecosystem news, releases, and tutorials"
     },
     {
-      "id": "techcrunch-rss",
+      "id": "r-artificial",
+      "type": "reddit",
+      "name": "r/artificial",
+      "subreddit": "artificial",
+      "sort": "hot",
+      "enabled": true,
+      "limit": 20,
+      "tags": ["AI"],
+      "description": "General AI news and discussions"
+    },
+    {
+      "id": "rss-techcrunch-ai",
       "type": "rss",
-      "name": "TechCrunch",
-      "enabled": false,
+      "name": "TechCrunch AI",
       "url": "https://techcrunch.com/feed/",
+      "enabled": true,
       "limit": 20,
-      "tags": ["tech", "startup", "business"]
+      "tags": ["tech", "startup", "AI"],
+      "description": "TechCrunch — tech news, startup funding, AI coverage"
     },
     {
-      "id": "github-releases-python",
+      "id": "rss-openai-blog",
       "type": "rss",
-      "name": "GitHub Releases — Python",
-      "enabled": false,
-      "url": "https://github.com/python/cpython/releases.atom",
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/blog/rss.xml",
+      "enabled": true,
       "limit": 10,
-      "tags": ["python", "releases"]
+      "tags": ["AI", "LLM", "OpenAI"],
+      "description": "Official OpenAI blog — model releases and research"
+    },
+    {
+      "id": "rss-deepmind",
+      "type": "rss",
+      "name": "Google DeepMind Blog",
+      "url": "https://deepmind.google/blog/rss.xml",
+      "enabled": true,
+      "limit": 10,
+      "tags": ["AI", "research", "DeepMind"],
+      "description": "Google DeepMind research updates"
+    },
+    {
+      "id": "rss-ars-technica",
+      "type": "rss",
+      "name": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "enabled": true,
+      "limit": 20,
+      "tags": ["tech", "science"],
+      "description": "In-depth tech journalism — hardware, software, science"
+    },
+    {
+      "id": "rss-the-verge",
+      "type": "rss",
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "enabled": false,
+      "limit": 15,
+      "tags": ["tech", "consumer"],
+      "description": "Consumer tech and culture — disabled by default (often lower signal)"
+    },
+    {
+      "id": "rss-github-blog",
+      "type": "rss",
+      "name": "GitHub Blog",
+      "url": "https://github.blog/feed/",
+      "enabled": true,
+      "limit": 10,
+      "tags": ["developer-tools", "open source", "GitHub"],
+      "description": "GitHub product updates and engineering posts"
+    },
+    {
+      "id": "rss-huggingface",
+      "type": "rss",
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "enabled": true,
+      "limit": 10,
+      "tags": ["AI", "ML", "open source", "models"],
+      "description": "Hugging Face model releases and research posts"
     }
   ]
 }
