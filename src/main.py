@@ -176,45 +176,63 @@ def _handle_setup(log: object) -> None:
     )
 
 
-async def _handle_run(settings: object, log: object, *, dry_run: bool = False) -> int:
+async def _handle_run(settings: object, log: object, *, dry_run: bool = False, target_date: str | None = None, sources_file: str | None = None) -> int:
     """
-    Main pipeline runner — will be fully implemented when the Orchestrator
-    is built on Day 16. For now it validates config and logs the intent.
+    Main pipeline runner — invokes the Orchestrator.
 
     Returns the exit code (0 = success, 1 = error).
     """
     from datetime import date
+    from pathlib import Path
 
     from src.config import Settings
+    from src.orchestrator import Orchestrator
 
     s: Settings = settings  # type: ignore[assignment]
-    today = date.today().isoformat()
 
-    log.pipeline_start(today, sources=0)  # type: ignore[attr-defined]
+    # ---- Validate AI config ----
+    warnings = s.validate_ai_config()
+    for w in warnings:
+        log.warning("%s", w)  # type: ignore[attr-defined]
 
-    if dry_run:
-        log.warning("DRY-RUN mode: pipeline will not save or deliver the briefing.")  # type: ignore[attr-defined]
-
-    # Validate at least one AI key is configured
-    if not (s.has_openai or s.has_gemini or s.has_anthropic):
+    if not s.has_any_ai_key:
         log.error(  # type: ignore[attr-defined]
             "No AI API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, "
             "or ANTHROPIC_API_KEY in your .env file."
         )
         return 1
 
-    # Validate sources file exists
-    if not Path(s.sources_file).exists():
+    # ---- Validate sources file ----
+    sources_path = Path(sources_file) if sources_file else Path(s.sources_file)
+    if not sources_path.exists():
         log.error(  # type: ignore[attr-defined]
-            "Sources file not found: %s. Run --setup to create it.", s.sources_file
+            "Sources file not found: %s. Run --setup to create it.", sources_path
         )
         return 1
 
-    # Placeholder — Orchestrator wired in on Day 16
-    log.info("Orchestrator not yet implemented (coming Day 16).")  # type: ignore[attr-defined]
-    log.info("Pipeline skeleton validated successfully.")  # type: ignore[attr-defined]
-    log.pipeline_end(items=0, duration=0.0)  # type: ignore[attr-defined]
+    # ---- Parse target date ----
+    parsed_date: date | None = None
+    if target_date:
+        try:
+            parsed_date = date.fromisoformat(target_date)
+        except ValueError:
+            log.error("Invalid date format: %r (expected YYYY-MM-DD)", target_date)  # type: ignore[attr-defined]
+            return 1
+
+    # ---- Run the pipeline ----
+    orc = Orchestrator(s)
+    briefing = await orc.run(
+        dry_run=dry_run,
+        target_date=parsed_date,
+        sources_override=sources_path if sources_file else None,
+    )
+
+    if briefing is None:
+        log.error("Pipeline failed — see logs above for details.")  # type: ignore[attr-defined]
+        return 1
+
     return 0
+
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +279,21 @@ def main() -> None:
             _handle_setup(log)
 
         elif args.run:
-            exit_code = asyncio.run(_handle_run(settings, log, dry_run=False))
+            exit_code = asyncio.run(_handle_run(
+                settings, log,
+                dry_run=False,
+                target_date=args.date,
+                sources_file=args.sources,
+            ))
             sys.exit(exit_code)
 
         elif args.dry_run:
-            exit_code = asyncio.run(_handle_run(settings, log, dry_run=True))
+            exit_code = asyncio.run(_handle_run(
+                settings, log,
+                dry_run=True,
+                target_date=args.date,
+                sources_file=args.sources,
+            ))
             sys.exit(exit_code)
 
     except KeyboardInterrupt:
