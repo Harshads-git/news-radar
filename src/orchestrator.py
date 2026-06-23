@@ -38,7 +38,16 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from src.ai import AIProviderFactory
+from src.ai.scorer import NewsScorer
+from src.ai.summarizer import NewsSummarizer
+from src.briefing import BriefingBuilder
+from src.deduplicator import Deduplicator
 from src.logger import get_logger
+from src.renderers.github_pages import GitHubPagesWriter
+from src.scrapers import ScraperFactory
+from src.setup.sources_loader import load_sources
+from src.storage import BriefingStore
 
 if TYPE_CHECKING:
     from src.config import Settings
@@ -213,9 +222,6 @@ class Orchestrator:
         self, stats: RunStats, sources_override: Path | None
     ) -> list["NewsItem"]:
         """Stage 1: Run all scrapers concurrently."""
-        from src.setup.sources_loader import load_sources
-        from src.scrapers import ScraperFactory
-
         t0 = time.monotonic()
         sources_path = sources_override or self.settings.sources_file
         sources_config = load_sources(sources_path)
@@ -262,8 +268,6 @@ class Orchestrator:
         self, stats: RunStats, items: list["NewsItem"]
     ) -> list["NewsItem"]:
         """Stage 2: Deduplicate by URL and title similarity."""
-        from src.deduplicator import Deduplicator
-
         t0 = time.monotonic()
         log.section("Stage 2: Deduplication")
 
@@ -288,8 +292,6 @@ class Orchestrator:
         provider: object,
     ) -> list["ScoredItem"]:
         """Stage 3: AI scoring + threshold filtering."""
-        from src.ai.scorer import NewsScorer
-
         t0 = time.monotonic()
         log.section("Stage 3: AI Scoring")
 
@@ -334,8 +336,6 @@ class Orchestrator:
         provider: object,
     ) -> list["SummarizedItem"]:
         """Stage 4: AI summarization of scored items."""
-        from src.ai.summarizer import NewsSummarizer
-
         t0 = time.monotonic()
         log.section("Stage 4: AI Summarization")
 
@@ -354,8 +354,6 @@ class Orchestrator:
         provider: object,
     ) -> "Briefing":
         """Stage 5: Assemble Briefing with executive summary."""
-        from src.briefing import BriefingBuilder
-
         t0 = time.monotonic()
         log.section("Stage 5: Briefing Assembly")
 
@@ -374,8 +372,6 @@ class Orchestrator:
 
     def _stage_store(self, stats: RunStats, briefing: "Briefing") -> None:
         """Stage 6: Save briefing to JSON storage."""
-        from src.storage import BriefingStore
-
         try:
             store = BriefingStore(self.settings.data_dir)
             path = store.save(briefing)
@@ -389,8 +385,6 @@ class Orchestrator:
         if not self.settings.github_pages_enabled:
             log.debug("GitHub Pages output disabled — skipping render")
             return
-
-        from src.renderers.github_pages import GitHubPagesWriter
 
         t0 = time.monotonic()
         try:
@@ -412,8 +406,6 @@ class Orchestrator:
 
     def _get_ai_provider(self) -> object:
         """Initialize the AI provider from settings."""
-        from src.ai import AIProviderFactory
-
         provider = AIProviderFactory.from_model(self.settings.ai_model)
         log.debug("AI provider: %s (model: %s)", type(provider).__name__, self.settings.ai_model)
         return provider
