@@ -1,0 +1,192 @@
+"""
+src/delivery/email.py
+=====================
+SMTP email delivery for the daily briefing.
+
+Sends a rich HTML email with a plain-text fallback (MIME multipart).
+Uses Python's built-in smtplib + email libraries — zero extra dependencies.
+
+Supported SMTP providers:
+  - Gmail (smtp.gmail.com:587 with App Password)
+  - Outlook / Hotmail (smtp.office365.com:587)
+  - Any standard SMTP server
+
+Email structure (MIME multipart/alternative):
+  - text/plain  ← plain text fallback for email clients without HTML
+  - text/html   ← full styled HTML briefing (same as GitHub Pages output)
+
+Subject line format:
+  📡 News Radar — 2026-06-24 · 12 stories · Top: GPT-5 Launched
+
+Usage:
+    from src.delivery.email import EmailDelivery
+    from src.config import settings
+
+    if settings.has_email:
+        delivery = EmailDelivery(settings)
+        await delivery.send(briefing)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import smtplib
+import ssl
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import TYPE_CHECKING
+
+from src.exceptions import DeliveryError
+from src.logger import get_logger
+
+if TYPE_CHECKING:
+    from src.config import Settings
+    from src.models import Briefing
+
+log = get_logger(__name__)
+
+
+class EmailDelivery:
+    """
+    Sends the daily briefing as a styled HTML email via SMTP.
+
+    Uses STARTTLS for secure connection (port 587).
+    Runs blocking smtplib in a thread executor for async compatibility.
+    """
+
+    def __init__(self, settings: "Settings") -> None:
+        self.settings = settings
+
+    async def send(self, briefing: "Briefing") -> None:
+        """
+        Send the briefing as an email.
+
+        Parameters
+        ----------
+        briefing:
+            The Briefing to send.
+
+        Raises
+        ------
+        DeliveryError
+            If SMTP connection, authentication, or sending fails.
+        """
+        if not self.settings.has_email:
+            raise DeliveryError(
+                "Email delivery not configured. Set SMTP_USER, SMTP_PASSWORD, "
+                "and EMAIL_TO in .env",
+                channel="email",
+            )
+
+        msg = self._build_message(briefing)
+        log.info(
+            "Sending email to %s via %s:%d",
+            self.settings.email_to,
+            self.settings.smtp_host,
+            self.settings.smtp_port,
+        )
+
+        # Run blocking SMTP in thread executor
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._smtp_send, msg)
+        log.success("Email sent to %s", self.settings.email_to)
+
+    def _build_message(self, briefing: "Briefing") -> MIMEMultipart:
+        """Construct the MIME multipart message with HTML + plain text."""
+        from src.renderers.html import render_html
+        from src.renderers.markdown import render_markdown
+
+        subject = self._build_subject(briefing)
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = self.settings.smtp_user
+        msg["To"] = self.settings.email_to
+
+        # Plain text fallback
+        plain_text = self._briefing_to_plain_text(briefing)
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+
+        # HTML body (same renderer as GitHub Pages)
+        html_body = render_html(briefing)
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        return msg
+
+    @staticmethod
+    def _build_subject(briefing: "Briefing") -> str:
+        """Build the email subject line."""
+        count = len(briefing.items)
+        top_headline = ""
+        if briefing.items:
+            top = briefing.items[0]
+            headline = top.ai_headline or top.scored.item.title
+            # Trim to max 60 chars to keep subject reasonable
+            top_headline = f" · Top: {headline[:60]}"
+        return f"\U0001f4e1 News Radar — {briefing.date} · {count} stories{top_headline}"
+
+    @staticmethod
+    def _briefing_to_plain_text(briefing: "Briefing") -> str:
+        """Generate a plain text version of the briefing for email fallback."""
+        lines: list[str] = [
+            f"NEWS RADAR — {briefing.date}",
+            f"{'=' * 50}",
+            "",
+        ]
+
+        if briefing.executive_summary:
+            lines.append("OVERVIEW")
+            lines.append("-" * 30)
+            lines.append(briefing.executive_summary)
+            lines.append("")
+
+        for rank, si in enumerate(briefing.items, 1):
+            item = si.scored.item
+            headline = si.ai_headline or item.title
+            lines.append(f"{rank}. [{si.scored.ai_score}/10] {headline}")
+            lines.append(f"   Source: {item.source_name}")
+            lines.append(f"   URL: {item.url}")
+            if si.ai_summary:
+                # First paragraph only
+                first_para = si.ai_summary.split("\n\n")[0].strip()
+                lines.append(f"   {first_para}")
+            lines.append("")
+
+        lines.append("-" * 50)
+        lines.append(f"Generated by News Radar | {briefing.date}")
+        return "\n".join(lines)
+
+    def _smtp_send(self, msg: MIMEMultipart) -> None:
+        """Send via SMTP with STARTTLS. Runs in a thread executor."""
+        context = ssl.create_default_context()
+        try:
+            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=30) as smtp:
+                smtp.ehlo()
+                smtp.starttls(context=context)
+                smtp.ehlo()
+                smtp.login(self.settings.smtp_user, self.settings.smtp_password)
+                smtp.sendmail(
+                    self.settings.smtp_user,
+                    [self.settings.email_to],
+                    msg.as_string(),
+                )
+        except smtplib.SMTPAuthenticationError as e:
+            raise DeliveryError(
+                f"SMTP authentication failed: {e}",
+                channel="email",
+            ) from e
+        except smtplib.SMTPConnectError as e:
+            raise DeliveryError(
+                f"Could not connect to SMTP server {self.settings.smtp_host}: {e}",
+                channel="email",
+            ) from e
+        except smtplib.SMTPException as e:
+            raise DeliveryError(
+                f"SMTP error: {e}",
+                channel="email",
+            ) from e
+        except OSError as e:
+            raise DeliveryError(
+                f"Network error sending email: {e}",
+                channel="email",
+            ) from e
