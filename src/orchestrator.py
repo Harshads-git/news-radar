@@ -42,6 +42,7 @@ from src.ai import AIProviderFactory
 from src.ai.scorer import NewsScorer
 from src.ai.summarizer import NewsSummarizer
 from src.briefing import BriefingBuilder
+from src.delivery.dispatcher import DeliveryDispatcher
 from src.deduplicator import Deduplicator
 from src.logger import get_logger
 from src.renderers.github_pages import GitHubPagesWriter
@@ -211,6 +212,10 @@ class Orchestrator:
         # ------ STAGE 7: RENDER (skip if dry_run) ------
         if not dry_run:
             self._stage_render(stats, briefing)
+
+        # ------ STAGE 8: DELIVER ------
+        if not dry_run:
+            await self._stage_deliver(briefing)
 
         return briefing
 
@@ -403,6 +408,14 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _stage_deliver(self, briefing: "Briefing") -> None:
+        """Stage 8: Deliver briefing to all configured channels."""
+        dispatcher = DeliveryDispatcher(self.settings)
+        if not dispatcher.has_any_channel():
+            log.info("No delivery channels configured — skipping")
+            return
+        await dispatcher.dispatch(briefing)
 
     def _get_ai_provider(self) -> object:
         """Initialize the AI provider from settings."""
