@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING
 
 from src.exceptions import DeliveryError
 from src.logger import get_logger
+from src.renderers.html import render_html
+from src.renderers.markdown import render_markdown
 
 if TYPE_CHECKING:
     from src.config import Settings
@@ -93,9 +95,6 @@ class EmailDelivery:
 
     def _build_message(self, briefing: "Briefing") -> MIMEMultipart:
         """Construct the MIME multipart message with HTML + plain text."""
-        from src.renderers.html import render_html
-        from src.renderers.markdown import render_markdown
-
         subject = self._build_subject(briefing)
 
         msg = MIMEMultipart("alternative")

@@ -92,6 +92,7 @@ filterwarnings = [
     "ignore::DeprecationWarning:pydantic",                # pydantic internal deprecations
     "ignore::DeprecationWarning:pytest_asyncio",          # asyncio plugin warnings
     "ignore::PendingDeprecationWarning",
+    "ignore::ResourceWarning",                            # tempfile cleanup from mock HTTPError objects
 ]
 
 
