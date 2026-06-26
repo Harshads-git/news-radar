@@ -1,0 +1,196 @@
+# .github/workflows/daily.yml
+# ============================
+# Daily briefing pipeline — runs automatically every day at 07:00 UTC.
+# Can also be triggered manually via workflow_dispatch with custom inputs.
+#
+# Secrets required (set in GitHub repo Settings → Secrets → Actions):
+#   OPENAI_API_KEY    OR   GEMINI_API_KEY   OR   ANTHROPIC_API_KEY
+#   (at least one AI key is required)
+#
+# Optional secrets for delivery:
+#   SMTP_USER, SMTP_PASSWORD, EMAIL_TO, SMTP_HOST, SMTP_PORT
+#   DISCORD_WEBHOOK_URL
+#   SLACK_WEBHOOK_URL
+#   CUSTOM_WEBHOOK_URL
+#
+# GitHub Pages:
+#   The workflow commits generated HTML/MD to the docs/ branch of main
+#   and triggers GitHub Pages deployment automatically.
+#   Set GITHUB_PAGES_ENABLED=true in .env or as a repo variable.
+
+name: Daily Briefing
+
+on:
+  # Run every day at 07:00 UTC (12:30 IST)
+  schedule:
+    - cron: "0 7 * * *"
+
+  # Allow manual trigger with optional date override and dry-run mode
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Briefing date (YYYY-MM-DD). Leave blank for today."
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run? (true = skip save and delivery)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+# Permissions needed for GitHub Pages commit + push
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Run the news-radar pipeline
+  # ---------------------------------------------------------------------------
+  run-pipeline:
+    name: Run News Radar Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can commit docs/ changes
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Validate configuration
+        run: uv run python -m src.main --check
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_PAGES_ENABLED: "true"
+
+      - name: Run pipeline
+        id: pipeline
+        run: |
+          # Build the command based on inputs
+          CMD="uv run python -m src.main"
+
+          # Dry run?
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            CMD="$CMD --dry-run"
+          else
+            CMD="$CMD --run"
+          fi
+
+          # Target date?
+          if [ -n "${{ github.event.inputs.target_date }}" ]; then
+            CMD="$CMD --date ${{ github.event.inputs.target_date }}"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CUSTOM_WEBHOOK_URL: ${{ secrets.CUSTOM_WEBHOOK_URL }}
+          GITHUB_PAGES_ENABLED: "true"
+          LOG_LEVEL: "INFO"
+
+      - name: Commit and push docs/ changes
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage any changes in docs/ and data/briefings/
+          git add docs/ data/briefings/ data/run_log.json 2>/dev/null || true
+
+          # Only commit if there are actual changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            TODAY=$(date -u +"%Y-%m-%d")
+            git commit -m "briefing: auto-publish daily briefing for ${TODAY} [skip ci]"
+            git push origin main
+          fi
+
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## 📡 News Radar — Daily Briefing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Date | $(date -u +"%Y-%m-%d") |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry run | ${{ github.event.inputs.dry_run || 'false' }} |" >> $GITHUB_STEP_SUMMARY
+
+          # Show last run stats if available
+          if [ -f data/run_log.json ]; then
+            python3 -c "
+          import json, sys
+          try:
+              runs = json.load(open('data/run_log.json'))
+              if runs:
+                  last = runs[-1]
+                  print(f'| Items in briefing | {last.get(\"in_briefing\", 0)} |')
+                  print(f'| Total fetched | {last.get(\"fetched\", 0)} |')
+                  print(f'| Duration | {last.get(\"duration_s\", 0):.1f}s |')
+                  print(f'| Status | {last.get(\"status\", \"?\")} |')
+          except Exception as e:
+              print(f'| Error reading run_log | {e} |')
+          " >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Deploy to GitHub Pages (only on non-dry runs)
+  # ---------------------------------------------------------------------------
+  deploy-pages:
+    name: Deploy GitHub Pages
+    runs-on: ubuntu-latest
+    needs: run-pipeline
+    if: github.event.inputs.dry_run != 'true' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout (with latest docs/)
+        uses: actions/checkout@v4
+        with:
+          ref: main  # Pick up the freshly committed docs/ changes
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

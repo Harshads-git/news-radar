@@ -1,0 +1,120 @@
+# .github/workflows/ci.yml
+# ==========================
+# Continuous Integration — runs on every push and pull request.
+#
+# Jobs:
+#   lint     → ruff format + lint check (fast, no dependencies)
+#   test     → uv sync + pytest with coverage
+#
+# The test job matrix covers Python 3.11 and 3.12 to catch
+# compatibility issues early.
+#
+# Coverage is enforced at 65% (same threshold as local dev).
+# A summary is posted to the GitHub Actions job summary page.
+
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs on the same branch when a new push arrives
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Lint + Format check (fast — no dependencies needed)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint & Format (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies
+        run: uv sync --dev
+
+      - name: Check formatting (ruff format)
+        run: uv run ruff format --check src/ tests/
+
+      - name: Lint (ruff check)
+        run: uv run ruff check src/ tests/
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Tests with coverage (matrix: Python 3.11 + 3.12)
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest tests/ \
+            -q \
+            --tb=short \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=65
+        env:
+          # Dummy values to satisfy Pydantic settings validation in tests
+          OPENAI_API_KEY: "test-key-ci"
+          GEMINI_API_KEY: "test-key-ci"
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+      - name: Coverage summary
+        if: matrix.python-version == '3.12'
+        run: |
+          echo "## Test Coverage" >> $GITHUB_STEP_SUMMARY
+          uv run python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          pct = float(root.attrib.get('line-rate', 0)) * 100
+          lines = root.attrib.get('lines-valid', '?')
+          print(f'- **Total coverage:** {pct:.1f}%')
+          print(f'- **Lines measured:** {lines}')
+          " >> $GITHUB_STEP_SUMMARY
