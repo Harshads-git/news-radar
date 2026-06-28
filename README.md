@@ -1,236 +1,208 @@
-<div align="center">
-
 # 📡 News Radar
 
-**Your personal AI-powered news radar. Fetch, score, and summarize daily briefings from RSS, Hacker News, and Reddit.**
+> *I was spending 45 minutes every morning reading Hacker News, Reddit, and various tech blogs just to figure out what was worth reading. So I built this.*
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://python.org)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json&style=flat-square)](https://github.com/astral-sh/uv)
-[![Daily Briefing](https://github.com/Harshads-git/news-radar/actions/workflows/daily-run.yml/badge.svg)](https://harshads-git.github.io/news-radar/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+A personal AI-powered news briefing pipeline that fetches stories from the sources I actually care about, scores them by relevance to my interests, summarizes the good ones, and delivers a clean daily briefing — automatically, every morning.
 
-![OpenAI](https://img.shields.io/badge/GPT-412991?style=flat-square)
-![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=google&logoColor=white)
-![Claude](https://img.shields.io/badge/Claude-f0daba?style=flat-square&logo=anthropic&logoColor=black)
-
-📡 Built in 30 days, 1 hour/day. An AI pipeline that turns internet noise into a curated daily reading list.
-
-[📖 Live Demo](https://harshads-git.github.io/news-radar/) · [⚙️ Configuration Guide](#configuration) · [🚀 Quick Start](#quick-start)
-
-</div>
+Built over 30 days, 1 hour/day, as a personal project to actually ship something end-to-end with real AI tooling.
 
 ---
 
-## ✨ What Is This?
+## What it does
 
-Good news is scattered; bad news is endless. **News Radar** gives you a personal first pass over Hacker News, Reddit, and RSS feeds: it **fetches, deduplicates, scores, filters, and enriches** stories with AI-generated summaries and background context — then delivers them as a clean daily briefing on GitHub Pages, email, or Discord.
+Every day at 07:00 UTC it:
 
----
+1. **Fetches** from Hacker News (top + new), Reddit (r/MachineLearning, r/LocalLLaMA, r/Python, r/devops), and 8 RSS feeds (OpenAI, DeepMind, HuggingFace, TechCrunch, Ars Technica, GitHub Blog)
+2. **Deduplicates** — removes near-duplicate stories by URL normalization and Jaccard title similarity
+3. **Scores** each story from 0-10 using GPT-4o-mini based on my configured interests
+4. **Summarizes** only the stories that scored above my threshold (default: 6/10)
+5. **Builds** a briefing with an AI-generated executive summary of the day's themes
+6. **Delivers** via email, Discord webhook, or just saves to GitHub Pages
+7. **Publishes** the HTML briefing to this repo's GitHub Pages
 
-## 🏗️ Architecture
-
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "fontFamily": "ui-sans-serif, system-ui, sans-serif",
-    "fontSize": "16px",
-    "primaryTextColor": "#1e1e2e",
-    "primaryBorderColor": "#6c7086",
-    "lineColor": "#89b4fa",
-    "tertiaryColor": "#1e1e2e",
-    "clusterBkg": "#181825",
-    "clusterBorder": "#313244"
-  }
-}}%%
-flowchart LR
-    classDef config fill:#f38ba8,stroke:#e64553,color:#1e1e2e,stroke-width:2px;
-    classDef source fill:#cba6f7,stroke:#9b59b6,color:#1e1e2e,stroke-width:1.5px;
-    classDef process fill:#fab387,stroke:#e08060,color:#1e1e2e,stroke-width:1.5px;
-    classDef output fill:#a6e3a1,stroke:#40a02b,color:#1e1e2e,stroke-width:1.5px;
-
-    config["⚙️ Config\nsources.json + .env"]:::config
-
-    subgraph sources["📡 Configured Sources"]
-        rss["RSS Feeds"]:::source
-        hn["Hacker News"]:::source
-        reddit["Reddit"]:::source
-    end
-
-    fetch["📥 Fetch\nhttpx + feedparser"]:::process
-    dedup["🔗 Deduplicate\nURL + Jaccard similarity"]:::process
-    score["🤖 AI Score\n0–10 with reason"]:::process
-    summarize["📝 AI Summarize\n+ web context"]:::process
-    store["💾 Store\ndata/briefings/"]:::process
-
-    subgraph outputs["📤 Outputs"]
-        pages["🌐 GitHub Pages\ndaily briefing site"]:::output
-        email["📧 Email\nSMTP delivery"]:::output
-        webhook["🔔 Discord / Slack\nwebhook push"]:::output
-    end
-
-    config --> sources
-    sources --> fetch
-    fetch --> dedup
-    dedup --> score
-    score --> summarize
-    summarize --> store
-    store --> outputs
-```
+The whole run takes about 45 seconds and costs roughly $0.02 in API credits.
 
 ---
 
-## 🚀 Features
+## Why I built this from scratch
 
-| Feature | Description |
-|---------|-------------|
-| 📡 **Multi-Source Fetching** | RSS, Hacker News API, Reddit JSON — all in one pipeline |
-| 🤖 **AI Scoring** | Every item scored 0–10 by GPT-4o-mini, Gemini, or Claude |
-| 🔗 **Smart Deduplication** | URL normalization + Jaccard title similarity removes cross-platform reposts |
-| 📝 **Context-Aware Summaries** | DuckDuckGo web search adds background context before summarizing |
-| 💾 **JSON Persistence** | Dated briefings stored locally as `data/briefings/YYYY-MM-DD.json` |
-| 🌐 **GitHub Pages Site** | Auto-published daily briefing website (no Jekyll, pure HTML) |
-| 📧 **Email Delivery** | Self-hosted SMTP briefing delivery (Gmail App Password supported) |
-| 🔔 **Webhook Notifications** | Discord, Slack, or custom webhook digest of top 5 items |
-| ⚙️ **Config-Driven** | Everything tunable via `sources.json` + `.env` — no code changes needed |
-| 🐳 **Docker Ready** | Multi-stage Dockerfile + `docker-compose.yml` for reproducible runs |
+I tried existing tools — RSS aggregators, news apps, even some AI newsletter services. None of them let me control:
+- *Which* sources get fetched
+- *How* relevance is scored (my interests, not an algorithm's)
+- *Where* the output goes
+- The actual prompt that generates the summary
+
+Building it myself meant I understand every part of it, I can debug it when it breaks, and I can extend it however I want. Also I just wanted an excuse to build a real async Python pipeline with proper testing.
 
 ---
 
-## 🏁 Quick Start
+## Live Briefing
 
-### Prerequisites
+→ **[harshads-git.github.io/news-radar](https://harshads-git.github.io/news-radar)**
 
-- Python 3.11+
-- [`uv`](https://github.com/astral-sh/uv) package manager
-- An OpenAI, Gemini, or Anthropic API key
+*(Updates daily at 07:00 UTC / 12:30 IST)*
 
-### Installation
+---
+
+## Quick start
 
 ```bash
-# 1. Clone the repo
+# Clone and install
 git clone https://github.com/Harshads-git/news-radar.git
 cd news-radar
+uv sync
 
-# 2. Install dependencies
-uv sync --extra dev
-
-# 3. Set up environment
+# Configure
 cp .env.example .env
-# Edit .env with your API key
+# Edit .env — add your OpenAI key and interests
 
-# 4. Run the setup wizard
-uv run python -m src.main --setup
+# Validate your setup
+uv run python -m src.main --check
 
-# 5. Run your first briefing
+# Run a dry run (no saves, no delivery — just fetch + score + summarize)
+uv run python -m src.main --dry-run
+
+# Full run
 uv run python -m src.main --run
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-All configuration is done through two files:
+Everything lives in `.env`:
 
-### `.env` — Secrets & Runtime Settings
+```env
+# Required — at least one AI key
+OPENAI_API_KEY=sk-...
 
-```bash
-# Choose your AI model
-AI_MODEL=gpt-4o-mini          # or gemini-1.5-flash, claude-3-haiku-20240307
+# What you actually care about (the AI uses this to score relevance)
+USER_INTERESTS=AI, machine learning, Python, open source, developer tools
 
-# Score threshold (0–10): items below this are filtered out
+# Only include stories that score above this (0-10)
 SCORE_THRESHOLD=6
 
-# Output language
-OUTPUT_LANGUAGE=English
+# Optional delivery
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=your-app-password
+EMAIL_TO=you@gmail.com
 ```
 
-See [`.env.example`](.env.example) for all available options.
-
-### `data/sources.json` — What to Watch
-
-```json
-{
-  "sources": [
-    { "type": "rss", "name": "Hacker News", "url": "https://hnrss.org/frontpage" },
-    { "type": "hackernews", "name": "HN Top Stories", "limit": 30 },
-    { "type": "reddit", "name": "r/programming", "subreddit": "programming", "limit": 25 }
-  ]
-}
-```
+Sources are configured in `data/sources.json` — you can enable/disable any source and set per-source fetch limits.
 
 ---
 
-## 📁 Project Structure
+## Architecture
 
 ```
-news-radar/
-├── src/                    # Main source package
-│   ├── main.py             # CLI entry point (--run, --setup, --dry-run)
-│   ├── config.py           # Pydantic BaseSettings config loader
-│   ├── models.py           # Core data models (NewsItem, ScoredItem, Briefing)
-│   ├── orchestrator.py     # Pipeline controller
-│   ├── search.py           # DuckDuckGo web context fetcher
-│   ├── exceptions.py       # Custom exception hierarchy
-│   ├── logger.py           # Rich-powered centralized logger
-│   ├── scrapers/           # Data fetchers
-│   │   ├── base.py         # Abstract BaseScraper
-│   │   ├── rss.py          # RSS/Atom feed scraper
-│   │   ├── hackernews.py   # Hacker News API scraper
-│   │   └── reddit.py       # Reddit JSON API scraper
-│   ├── ai/                 # AI integration layer
-│   │   ├── base.py         # Abstract BaseAIProvider
-│   │   ├── scorer.py       # 0–10 scoring engine
-│   │   └── summarizer.py   # Context-aware summarizer
-│   ├── services/           # Output delivery
-│   │   ├── markdown_generator.py
-│   │   ├── site_generator.py
-│   │   ├── email_service.py
-│   │   └── webhook_service.py
-│   └── storage/            # Persistence
-│       ├── briefing_store.py
-│       └── cache.py
-├── tests/                  # Test suite (pytest + asyncio)
-├── scripts/                # Operational scripts
-│   └── daily-run.sh        # Shell wrapper for cron runs
-├── docs/                   # GitHub Pages site
-│   └── assets/             # Screenshots and static assets
-├── data/                   # Runtime data (gitignored)
-│   ├── briefings/          # Generated YYYY-MM-DD.json files
-│   ├── cache/              # AI response cache
-│   └── sources.json        # Source configuration
-├── .github/
-│   └── workflows/
-│       ├── daily-run.yml   # Scheduled daily run
-│       └── deploy-docs.yml # GitHub Pages deployment
-├── .env.example            # Environment template
-├── pyproject.toml          # Project config + dependencies
-└── Dockerfile              # Multi-stage container build
+sources.json
+    ↓
+[FETCH] → RSS / HN API / Reddit API (concurrent)
+    ↓
+[DEDUP] → URL normalize + Jaccard title similarity
+    ↓
+[SCORE] → GPT-4o-mini scores each story (0-10) based on your interests
+    ↓
+[SUMMARIZE] → GPT-4o-mini generates 3-paragraph summary + key points
+    ↓
+[BUILD] → Assemble Briefing with executive summary
+    ↓
+[STORE] → data/briefings/YYYY-MM-DD.json
+    ↓
+[RENDER] → docs/YYYY-MM-DD.html + docs/index.html
+    ↓
+[DELIVER] → Email + Discord + Slack + Custom webhook
+```
+
+Each stage is independent — if the Reddit scraper goes down, the rest of the pipeline continues with HN and RSS results.
+
+---
+
+## Project structure
+
+```
+src/
+├── main.py              # CLI entry point (--run, --dry-run, --check, --status)
+├── orchestrator.py      # Wires all 8 pipeline stages together
+├── config.py            # Settings (Pydantic BaseSettings, reads from .env)
+├── models.py            # Pydantic data models (NewsItem, ScoredItem, Briefing...)
+├── scrapers/            # RSS, HackerNews, Reddit scrapers + ScraperFactory
+├── deduplicator.py      # URL normalization + Jaccard similarity dedup
+├── ai/                  # AIProviderFactory, scorer, summarizer
+├── briefing.py          # BriefingBuilder + BriefingStore
+├── renderers/           # Markdown, HTML, GitHubPagesWriter
+├── delivery/            # Email, Discord, Slack, custom webhook, dispatcher
+├── pipeline/            # Structured JSONL event logger
+└── setup/               # sources_loader.py
+
+data/
+├── sources.json         # Which sources to fetch from (edit this!)
+├── briefings/           # Daily briefings as JSON
+└── logs/                # JSONL pipeline event log (one file per day)
+
+docs/                    # GitHub Pages output (auto-generated)
+tests/                   # 450+ unit tests, 84% coverage
 ```
 
 ---
 
-## 🤝 Contributing
+## Roadmap / Known issues
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+See the [Issues tab](https://github.com/Harshads-git/news-radar/issues) for the full list. Some things I'm actively thinking about:
 
----
-
-## 🔒 Security
-
-Never commit your `.env` file or API keys. See [SECURITY.md](SECURITY.md) for best practices.
-
----
-
-## 📄 License
-
-MIT © [Harshads-git](https://github.com/Harshads-git)
+- [ ] **Telegram delivery** — I actually use Telegram more than Discord (#3)
+- [ ] **Weekly digest mode** — summarize the week's top 10 (#4)
+- [ ] **AI score caching** — avoid re-scoring on failed runs (#5)
+- [ ] **Obsidian export** — save briefings to my knowledge base (#13)
+- [ ] **Cost tracking** — show estimated $ per run (#9)
 
 ---
 
-<div align="center">
+## Running costs
 
-**Built in 30 days · 1 hour/day · Inspired by [Thysrael/Horizon](https://github.com/Thysrael/Horizon)**
+With default settings (14 sources, GPT-4o-mini):
+- ~300 stories fetched per day
+- ~30 pass the score threshold
+- ~$0.01–0.03 per day in OpenAI credits
 
-</div>
+30 days ≈ $0.30–$0.90. Cheaper than a coffee.
+
+---
+
+## Development
+
+```bash
+# Run tests
+uv run pytest tests/ -q
+
+# Run with coverage
+uv run pytest tests/ --cov=src --cov-report=term-missing
+
+# Lint
+uv run ruff check src/ tests/
+```
+
+Tests run on Python 3.11 and 3.12 via GitHub Actions on every push.
+
+---
+
+## AI providers
+
+Supports OpenAI (default), Google Gemini, and Anthropic Claude. Set `AI_MODEL` in `.env`:
+
+```env
+AI_MODEL=gpt-4o-mini          # OpenAI (default, cheapest)
+AI_MODEL=gemini-1.5-flash     # Google Gemini
+AI_MODEL=claude-3-haiku-20240307  # Anthropic
+```
+
+---
+
+## License
+
+MIT — do whatever you want with it.
+
+---
+
+*Built in 30 days as a personal project. Day 15/30 complete.*

@@ -273,6 +273,9 @@ class RssScraper(BaseScraper):
         parse it with email.utils for proper tz handling.
         """
         # Try raw published string first (preserves timezone)
+        # TODO(#1): some feeds return dates like "28 Jun 2026" (no time) or
+        # locale-specific formats that parsedate_to_datetime can't handle.
+        # Should try dateutil.parser.parse as a fallback before giving up.
         raw = entry.get("published") or entry.get("updated") or ""
         if raw:
             try:

@@ -227,6 +227,9 @@ class Orchestrator:
         self, stats: RunStats, sources_override: Path | None
     ) -> list["NewsItem"]:
         """Stage 1: Run all scrapers concurrently."""
+        # TODO(#12): investigate connection pooling - currently each scraper
+        # creates its own httpx client, which means 14 separate TCP handshakes
+        # even with asyncio.gather. Should use a shared AsyncClient.
         t0 = time.monotonic()
         sources_path = sources_override or self.settings.sources_file
         sources_config = load_sources(sources_path)
@@ -273,6 +276,9 @@ class Orchestrator:
         self, stats: RunStats, items: list["NewsItem"]
     ) -> list["NewsItem"]:
         """Stage 2: Deduplicate by URL and title similarity."""
+        # FIXME(#2): Jaccard threshold is too aggressive when stories share
+        # a common prefix like 'OpenAI releases X' vs 'OpenAI releases Y'
+        # Consider weighting URL domain into the similarity calculation.
         t0 = time.monotonic()
         log.section("Stage 2: Deduplication")
 
@@ -297,6 +303,8 @@ class Orchestrator:
         provider: object,
     ) -> list["ScoredItem"]:
         """Stage 3: AI scoring + threshold filtering."""
+        # TODO(#5): add a disk cache for scores so reruns don't re-call the API
+        # data/cache/YYYY-MM-DD-scores.json with 24h TTL
         t0 = time.monotonic()
         log.section("Stage 3: AI Scoring")
 
