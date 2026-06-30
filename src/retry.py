@@ -230,9 +230,9 @@ def _calc_delay(attempt: int, retry_after: float | None = None) -> float:
         return min(retry_after + jitter, _MAX_DELAY_S)
 
     # Exponential backoff: 1s, 2s, 4s, 8s... capped at 60s
-    base_delay = min(_BASE_DELAY_S * (2 ** attempt), _MAX_DELAY_S)
+    base_delay = _BASE_DELAY_S * (2 ** attempt)
     jitter = random.uniform(-_JITTER_FRACTION, _JITTER_FRACTION) * base_delay
-    return max(0.1, base_delay + jitter)
+    return max(0.1, min(base_delay + jitter, _MAX_DELAY_S))
 
 
 def _extract_retry_after(exc: Exception) -> float | None:
@@ -348,7 +348,6 @@ async def with_ai_retry(
                 )
 
             if attempt == _MAX_ATTEMPTS - 1:
-                # Final attempt failed
                 log.error(
                     "AI call failed after %d attempts: %s",
                     _MAX_ATTEMPTS, e,
