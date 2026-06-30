@@ -185,6 +185,13 @@ class TestOrchestratorHappyPath:
             patch("src.orchestrator.AIProviderFactory") as MockAI,
         ):
             # Wire mocks
+            mock_provider = MagicMock()
+            mock_provider.cost_tracker.total_tokens = 120
+            mock_provider.cost_tracker.total_cost_usd = 0.000018
+            mock_provider.cost_tracker.total_calls = 3
+            mock_provider.cost_tracker.retry_calls = 0
+            mock_provider.cost_tracker.summary.return_value = "Cost: <0.01¢ | tokens: 120 | calls: 3"
+            MockAI.from_model.return_value = mock_provider
             scraper = MagicMock()
             scraper.fetch = AsyncMock(return_value=news_items)
             MockSF.create.return_value = scraper
@@ -222,8 +229,15 @@ class TestOrchestratorHappyPath:
             patch("src.orchestrator.BriefingBuilder") as MockBuilder,
             patch("src.orchestrator.BriefingStore") as MockStore,
             patch("src.orchestrator.GitHubPagesWriter") as MockWriter,
-            patch("src.orchestrator.AIProviderFactory"),
+            patch("src.orchestrator.AIProviderFactory") as MockAIFactory,
         ):
+            mock_provider = MagicMock()
+            mock_provider.cost_tracker.total_tokens = 0
+            mock_provider.cost_tracker.total_cost_usd = 0.0
+            mock_provider.cost_tracker.total_calls = 0
+            mock_provider.cost_tracker.retry_calls = 0
+            mock_provider.cost_tracker.summary.return_value = "Cost: <0.01¢ | tokens: 0 | calls: 0"
+            MockAIFactory.from_model.return_value = mock_provider
             scraper = MagicMock()
             scraper.fetch = AsyncMock(return_value=news_items)
             MockSF.create.return_value = scraper
@@ -275,8 +289,15 @@ class TestOrchestratorErrors:
             patch("src.orchestrator.BriefingBuilder") as MockBuilder,
             patch("src.orchestrator.BriefingStore"),
             patch("src.orchestrator.GitHubPagesWriter"),
-            patch("src.orchestrator.AIProviderFactory"),
+            patch("src.orchestrator.AIProviderFactory") as MockAIFactory,
         ):
+            mock_provider = MagicMock()
+            mock_provider.cost_tracker.total_tokens = 60
+            mock_provider.cost_tracker.total_cost_usd = 0.000009
+            mock_provider.cost_tracker.total_calls = 1
+            mock_provider.cost_tracker.retry_calls = 0
+            mock_provider.cost_tracker.summary.return_value = "Cost: <0.01¢ | tokens: 60 | calls: 1"
+            MockAIFactory.from_model.return_value = mock_provider
             MockSF.create.side_effect = [good_scraper, bad_scraper]
             MockDedup.return_value.deduplicate.return_value = [make_news_item()]
             MockScorer.return_value.score_all = AsyncMock(return_value=[make_scored_item()])
