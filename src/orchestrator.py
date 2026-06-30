@@ -87,6 +87,12 @@ class RunStats:
     t_build: float = 0.0
     t_render: float = 0.0
 
+    # AI cost tracking (populated from provider.cost_tracker)
+    ai_tokens_used: int = 0
+    ai_cost_usd: float = 0.0
+    ai_calls: int = 0
+    ai_retries: int = 0
+
     # Error notes
     errors: list[str] = field(default_factory=list)
 
@@ -201,6 +207,16 @@ class Orchestrator:
         # ------ STAGE 4: SUMMARIZE ------
         web_contexts = await self._fetch_all_contexts(scored_items)
         summarized = await self._stage_summarize(stats, scored_items, web_contexts, provider)
+
+        # ------ Capture AI cost stats after scoring + summarization ------
+        stats.ai_tokens_used = provider.cost_tracker.total_tokens
+        stats.ai_cost_usd = round(provider.cost_tracker.total_cost_usd, 6)
+        stats.ai_calls = provider.cost_tracker.total_calls
+        stats.ai_retries = provider.cost_tracker.retry_calls
+        if stats.ai_calls > 0:
+            log.info(
+                "AI cost summary: %s", provider.cost_tracker.summary()
+            )
 
         # ------ STAGE 5: BUILD BRIEFING ------
         briefing = await self._stage_build(stats, summarized, target_date, provider)

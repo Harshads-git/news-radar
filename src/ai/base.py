@@ -36,6 +36,8 @@ import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from src.retry import CostTracker, with_ai_retry
+
 if TYPE_CHECKING:
     from src.models import NewsItem, ScoredItem
 
@@ -89,6 +91,8 @@ class BaseAIProvider(ABC):
 
         self.model = model
         self.log = get_logger(f"src.ai.{self.PROVIDER_NAME}")
+        # Cost tracker — accumulates token usage for the entire run
+        self.cost_tracker = CostTracker()
 
     # ------------------------------------------------------------------
     # Abstract: must be implemented by each provider subclass
@@ -170,10 +174,13 @@ class BaseAIProvider(ABC):
         self.log.debug("Scoring: %s", item.title[:70])
 
         try:
-            raw = await self.complete(
+            raw = await with_ai_retry(
+                self.complete,
                 prompt,
                 max_tokens=256,
                 temperature=0.2,
+                cost_tracker=self.cost_tracker,
+                model=self.model,
             )
             score, reason, topics = self._parse_score_response(raw, item)
         except Exception as e:
@@ -198,17 +205,22 @@ class BaseAIProvider(ABC):
         fallback: str = "",
     ) -> str:
         """
-        Fault-tolerant wrapper around ``complete()``.
+        Fault-tolerant wrapper around ``complete()`` with retry logic.
 
         Returns ``fallback`` instead of raising on errors.
         Logs the error at WARNING level.
         """
         try:
-            return await self.complete(
-                prompt, max_tokens=max_tokens, temperature=temperature
+            return await with_ai_retry(
+                self.complete,
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                cost_tracker=self.cost_tracker,
+                model=self.model,
             )
         except Exception as e:
-            self.log.warning("AI call failed (%s): %s", self.model, e)
+            self.log.warning("AI call failed after retries (%s): %s", self.model, e)
             return fallback
 
     # ------------------------------------------------------------------
