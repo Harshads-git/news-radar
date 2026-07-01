@@ -125,6 +125,7 @@ class Orchestrator:
         dry_run: bool = False,
         target_date: date | None = None,
         sources_override: Path | None = None,
+        enrich_context: bool = True,
     ) -> "Briefing | None":
         """
         Run the full pipeline end-to-end.
@@ -137,6 +138,9 @@ class Orchestrator:
             Date for the briefing (default: today UTC).
         sources_override:
             Override the sources file path (for CLI --sources flag).
+        enrich_context:
+            If False, skip DuckDuckGo context enrichment (--no-enrich flag).
+            Useful for faster debug runs or when DDG is unavailable.
 
         Returns
         -------
@@ -155,7 +159,10 @@ class Orchestrator:
             log.warning("DRY-RUN: pipeline will not save or deliver output")
 
         try:
-            briefing = await self._run_stages(stats, target_date, sources_override, dry_run)
+            briefing = await self._run_stages(
+                stats, target_date, sources_override, dry_run,
+                enrich_context=enrich_context,
+            )
             stats.status = "success"
             return briefing
 
@@ -181,6 +188,7 @@ class Orchestrator:
         target_date: date | None,
         sources_override: Path | None,
         dry_run: bool,
+        enrich_context: bool = True,
     ) -> "Briefing":
         """Execute all pipeline stages in sequence."""
         s = self.settings
@@ -205,7 +213,7 @@ class Orchestrator:
             return await self._build_empty_briefing(stats, target_date, dry_run)
 
         # ------ STAGE 4: SUMMARIZE ------
-        web_contexts = await self._fetch_all_contexts(scored_items)
+        web_contexts = await self._fetch_all_contexts(scored_items, enrich=enrich_context)
         summarized = await self._stage_summarize(stats, scored_items, web_contexts, provider)
 
         # ------ Capture AI cost stats after scoring + summarization ------
@@ -338,24 +346,49 @@ class Orchestrator:
         return scored
 
     async def _fetch_all_contexts(
-        self, scored_items: list["ScoredItem"]
+        self,
+        scored_items: list["ScoredItem"],
+        enrich: bool = True,
     ) -> dict[str, str]:
-        """Pre-fetch web context for all scored items (best-effort)."""
+        """
+        Pre-fetch web context for all scored items in parallel (best-effort).
+
+        Uses the upgraded fetch_all_contexts() which:
+          - Limits concurrency to 5 parallel DDG requests
+          - Checks disk cache first (avoids re-fetching for today's run)
+          - Falls back to DDGS text() for richer results on niche topics
+          - Logs a hit-rate summary at INFO level
+
+        Args:
+            scored_items: Items to enrich with web context.
+            enrich: If False, skip enrichment (--no-enrich CLI flag).
+
+        Returns:
+            dict[url → context_text]
+        """
+        if not enrich or not scored_items:
+            return {}
+
         try:
-            from src.search import fetch_web_context
+            from src.search import fetch_all_contexts
 
-            async def _ctx(item: "ScoredItem") -> tuple[str, str]:
-                try:
-                    ctx = await fetch_web_context(item.item.title)
-                    return item.item.url, ctx
-                except Exception:
-                    return item.item.url, ""
+            queries = [si.item.title for si in scored_items]
+            cache_dir = self.settings.data_dir / "cache"
 
-            pairs = await asyncio.gather(*[_ctx(si) for si in scored_items])
-            return dict(pairs)
+            contexts, ctx_stats = await fetch_all_contexts(
+                queries,
+                cache_dir=cache_dir,
+            )
+
+            return {
+                si.item.url: ctx
+                for si, ctx in zip(scored_items, contexts)
+            }
+
         except Exception as e:
             log.debug("Web context fetch failed: %s", e)
             return {}
+
 
     async def _stage_summarize(
         self,

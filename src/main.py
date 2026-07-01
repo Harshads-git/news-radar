@@ -6,6 +6,7 @@ CLI entry point for the News Radar pipeline.
 Invocation:
     uv run python -m src.main --run
     uv run python -m src.main --dry-run
+    uv run python -m src.main --dry-run --no-enrich
     uv run python -m src.main --setup
     uv run python -m src.main --version
     uv run python -m src.main --status
@@ -100,6 +101,13 @@ Examples:
         default=None,
         metavar="FILE",
         help="Override the sources config file path (default: data/sources.json).",
+    )
+    parser.add_argument(
+        "--no-enrich",
+        action="store_true",
+        default=False,
+        dest="no_enrich",
+        help="Skip DuckDuckGo context enrichment (faster runs, weaker summaries).",
     )
 
     return parser
@@ -311,7 +319,15 @@ def _handle_check(settings: object, log: object) -> int:
     return 0
 
 
-async def _handle_run(settings: object, log: object, *, dry_run: bool = False, target_date: str | None = None, sources_file: str | None = None) -> int:
+async def _handle_run(
+    settings: object,
+    log: object,
+    *,
+    dry_run: bool = False,
+    target_date: str | None = None,
+    sources_file: str | None = None,
+    enrich_context: bool = True,
+) -> int:
     """
     Main pipeline runner — invokes the Orchestrator.
 
@@ -354,12 +370,16 @@ async def _handle_run(settings: object, log: object, *, dry_run: bool = False, t
             log.error("Invalid date format: %r (expected YYYY-MM-DD)", target_date)  # type: ignore[attr-defined]
             return 1
 
+    if not enrich_context:
+        log.info("Context enrichment disabled (--no-enrich)")  # type: ignore[attr-defined]
+
     # ---- Run the pipeline ----
     orc = Orchestrator(s)
     briefing = await orc.run(
         dry_run=dry_run,
         target_date=parsed_date,
         sources_override=sources_path if sources_file else None,
+        enrich_context=enrich_context,
     )
 
     if briefing is None:
@@ -423,6 +443,7 @@ def main() -> None:
                 dry_run=False,
                 target_date=args.date,
                 sources_file=args.sources,
+                enrich_context=not args.no_enrich,
             ))
             sys.exit(exit_code)
 
@@ -432,6 +453,7 @@ def main() -> None:
                 dry_run=True,
                 target_date=args.date,
                 sources_file=args.sources,
+                enrich_context=not args.no_enrich,
             ))
             sys.exit(exit_code)
 
