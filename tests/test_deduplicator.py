@@ -385,22 +385,15 @@ class TestFetchWebContext:
 
     @pytest.mark.unit
     async def test_result_cached_on_second_call(self):
-        from src.search import _cache, clear_context_cache, fetch_web_context
+        from src.search import _memory_cache, clear_context_cache, fetch_web_context
         clear_context_cache()
-
-        mock_response = {
-            "AbstractText": "Python is a high-level programming language.",
-            "Abstract": "",
-            "Answer": "",
-            "RelatedTopics": [],
-        }
 
         with patch("src.search._fetch_ddg_context", new_callable=AsyncMock,
                    return_value="Python is a high-level programming language.") as mock_fetch:
             result1 = await fetch_web_context("Python programming language")
             result2 = await fetch_web_context("Python programming language")
 
-        # Should only have fetched once (second call uses cache)
+        # Should only have fetched once (second call uses memory cache)
         assert mock_fetch.call_count == 1
         assert result1 == result2
 
