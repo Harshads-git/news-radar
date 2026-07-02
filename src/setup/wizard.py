@@ -246,8 +246,44 @@ def run_wizard(
         _write_outputs(cfg, env_path, sources_path, console)
         return cfg
 
+    # ---- TTY guard: prompts require an interactive terminal ----
+    # Rich reads from stdin; piped/subprocess environments will cause EOFError.
+    # We wrap the entire interactive body so we exit 0 gracefully instead of crashing.
+    import sys as _sys
+    if not _sys.stdin.isatty():
+        console.print(
+            "[yellow]⚠[/yellow]  Setup wizard requires an interactive terminal.\n"
+            f"Copy [bold].env.example[/bold] to [bold]{env_path}[/bold] and edit it manually,\n"
+            "or run [bold cyan]news-radar --setup[/bold cyan] in a real terminal."
+        )
+        return cfg
+
+    try:
+        return _run_interactive_wizard(cfg, env_path, sources_path, console)
+    except EOFError:
+        # Non-TTY stdin (subprocess, DEVNULL, CI pipe) — exit gracefully
+        console.print(
+            "\n[yellow]Setup wizard requires an interactive terminal.[/yellow]"
+        )
+        return cfg
+
+
+def _run_interactive_wizard(
+    cfg: WizardConfig,
+    env_path: Path,
+    sources_path: Path,
+    console: object,
+) -> WizardConfig:
+    """Run the interactive portion of the wizard (separated for testability)."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.prompt import Confirm, IntPrompt, Prompt
+    c: Console = console  # type: ignore[assignment]
+
+    existing_env = _load_existing_env(env_path)
+
     # ---- Welcome banner ----
-    console.print()
+    c.print()
     console.print(Panel.fit(
         "[bold cyan]📡 News Radar Setup Wizard[/bold cyan]\n"
         "[dim]This wizard will create your .env and sources.json files.[/dim]\n"

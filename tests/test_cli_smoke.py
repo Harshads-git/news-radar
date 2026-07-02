@@ -37,6 +37,7 @@ def run_cli(*args: str) -> subprocess.CompletedProcess:
         text=True,
         encoding="utf-8",
         errors="replace",
+        stdin=subprocess.DEVNULL,  # prevent wizard from reading TTY
         cwd=".",  # project root
     )
 
