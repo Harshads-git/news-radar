@@ -221,12 +221,15 @@ def _handle_status(settings: object, log: object) -> None:
 
 
 def _handle_setup(log: object) -> None:
-    """Launch the interactive setup wizard."""
-    log.section("Setup Wizard")  # type: ignore[attr-defined]
-    log.info("The setup wizard will be implemented on Day 18.")  # type: ignore[attr-defined]
-    log.info(  # type: ignore[attr-defined]
-        "For now, copy .env.example to .env and edit data/sources.json manually."
-    )
+    """Launch the interactive setup wizard to create .env and sources.json."""
+    from pathlib import Path
+    from src.setup.wizard import run_wizard
+
+    env_path = Path(".env")
+    sources_path = Path("data/sources.json")
+
+    run_wizard(env_path=env_path, sources_path=sources_path)
+
 
 
 def _handle_check(settings: object, log: object) -> int:
