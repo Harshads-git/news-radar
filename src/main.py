@@ -222,11 +222,20 @@ def _handle_status(settings: object, log: object) -> None:
 
 def _handle_setup(log: object) -> None:
     """Launch the interactive setup wizard to create .env and sources.json."""
+    import sys
     from pathlib import Path
     from src.setup.wizard import run_wizard
 
     env_path = Path(".env")
     sources_path = Path("data/sources.json")
+
+    # Guard: Rich prompts require an interactive terminal.
+    # In CI or subprocess test environments, stdin is a pipe — exit gracefully.
+    if not sys.stdin.isatty():
+        print("Setup wizard requires an interactive terminal.")
+        print(f"Copy .env.example to {env_path} and edit it manually, or run:")
+        print("  news-radar --setup")
+        return
 
     run_wizard(env_path=env_path, sources_path=sources_path)
 
