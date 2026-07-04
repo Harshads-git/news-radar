@@ -504,7 +504,29 @@ class Orchestrator:
         return briefing
 
     def _record_run(self, stats: RunStats) -> None:
-        """Append run stats to data/run_log.json for --status display."""
+        """Append run stats to data/run_log.json and write final event log entries."""
+        # Write ai_cost + run_end to the structured event log
+        try:
+            from src.pipeline.event_log import EventLog
+            event_log = EventLog(self.settings.data_dir)
+            if stats.ai_calls > 0:
+                event_log.ai_cost(
+                    model=self.settings.ai_model,
+                    tokens=stats.ai_tokens_used,
+                    cost_usd=stats.ai_cost_usd,
+                    calls=stats.ai_calls,
+                    retries=stats.ai_retries,
+                )
+            event_log.end_run(
+                status=stats.status,
+                items=stats.in_briefing,
+                duration_s=stats.duration_s,
+                errors=stats.errors,
+            )
+        except Exception as e:
+            log.debug("Could not write event log: %s", e)
+
+        # Persist to run_log.json for --status run history table
         run_log_path = self.settings.data_dir / "run_log.json"
         try:
             run_log_path.parent.mkdir(parents=True, exist_ok=True)

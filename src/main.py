@@ -204,20 +204,36 @@ def _handle_status(settings: object, log: object) -> None:
     else:
         console.print("\n[dim]No previous runs found.[/dim]")
 
-    # ---- Event log files ----
-    log_files = EventLog.list_log_files(s.data_dir)
-    if log_files:
-        console.print(f"\n[dim]Event logs: {len(log_files)} file(s) in {s.data_dir}/logs/[/dim]")
-        last_log = log_files[-1]
-        events = EventLog.load_log(last_log)
-        run_ends = [e for e in events if e.get("event") == "run_end"]
-        if run_ends:
-            last = run_ends[-1]["data"]
-            console.print(
-                f"[dim]Last log entry: status={last.get('status')} "
-                f"items={last.get('items_in_briefing')} "
-                f"duration={last.get('duration_s')}s[/dim]"
-            )
+    # ---- Last run timeline (from event log) ----
+    from src.pipeline.event_log import build_status_panel, aggregate_runs
+    timeline_panel = build_status_panel(s.data_dir)
+    if timeline_panel is not None:
+        console.print()
+        console.print(timeline_panel)
+    else:
+        console.print("\n[dim]No run timeline available yet — run the pipeline first.[/dim]")
+
+    # ---- 7-day aggregate stats ----
+    agg = aggregate_runs(s.data_dir, days=7)
+    if agg.run_count > 0:
+        from rich.table import Table as _T
+        agg_table = _T(title="7-Day Stats", show_header=False, box=None, padding=(0, 2))
+        agg_table.add_column("Metric", style="dim")
+        agg_table.add_column("Value", style="white")
+        agg_table.add_row("Runs", str(agg.run_count))
+        agg_table.add_row(
+            "Success rate",
+            f"[green]{agg.success_rate:.0%}[/green]" if agg.success_rate >= 0.8
+            else f"[yellow]{agg.success_rate:.0%}[/yellow]",
+        )
+        agg_table.add_row("Avg duration", f"{agg.avg_duration_s:.0f}s")
+        agg_table.add_row("Avg items", f"{agg.avg_items:.1f}")
+        if agg.total_cost_usd > 0:
+            agg_table.add_row("Total AI cost", f"${agg.total_cost_usd:.4f}")
+            agg_table.add_row("Avg cost/run", f"${agg.avg_cost_usd:.4f}")
+        console.print()
+        console.print(agg_table)
+
 
 
 def _handle_setup(log: object) -> None:
