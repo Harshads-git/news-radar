@@ -265,7 +265,7 @@ class TestDeduplicatorUrlStage:
             make_item("https://example.com/article"),
             make_item("https://other.com/post"),
         ]
-        result = Deduplicator(enable_title_dedup=False).deduplicate(items)
+        result = Deduplicator(enable_title_dedup=False, enable_semantic_dedup=False).deduplicate(items)
         assert len(result) == 2
 
     @pytest.mark.unit
@@ -274,7 +274,7 @@ class TestDeduplicatorUrlStage:
             make_item("https://example.com/article?utm_source=hn"),
             make_item("https://example.com/article?utm_source=reddit"),
         ]
-        result = Deduplicator(enable_title_dedup=False).deduplicate(items)
+        result = Deduplicator(enable_title_dedup=False, enable_semantic_dedup=False).deduplicate(items)
         assert len(result) == 1
 
     @pytest.mark.unit
@@ -283,7 +283,7 @@ class TestDeduplicatorUrlStage:
             make_item("https://example.com/article/"),
             make_item("https://example.com/article"),
         ]
-        result = Deduplicator(enable_title_dedup=False).deduplicate(items)
+        result = Deduplicator(enable_title_dedup=False, enable_semantic_dedup=False).deduplicate(items)
         assert len(result) == 1
 
     @pytest.mark.unit
@@ -292,18 +292,18 @@ class TestDeduplicatorUrlStage:
             make_item("https://example.com/article?utm_source=hn", score=100),
             make_item("https://example.com/article?utm_source=reddit", score=842),
         ]
-        result = Deduplicator(enable_title_dedup=False).deduplicate(items)
+        result = Deduplicator(enable_title_dedup=False, enable_semantic_dedup=False).deduplicate(items)
         assert len(result) == 1
         assert result[0].score == 842
 
     @pytest.mark.unit
     def test_unique_urls_preserved(self):
         items = [
-            make_item("https://a.com/1"),
-            make_item("https://b.com/2"),
-            make_item("https://c.com/3"),
+            make_item("https://a.com/1", title="Unique Story About Rust"),
+            make_item("https://b.com/2", title="Unique Story About Python"),
+            make_item("https://c.com/3", title="Unique Story About Go Lang"),
         ]
-        result = Deduplicator(enable_title_dedup=False).deduplicate(items)
+        result = Deduplicator(enable_title_dedup=False, enable_semantic_dedup=False).deduplicate(items)
         assert len(result) == 3
 
     @pytest.mark.unit
