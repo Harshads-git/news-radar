@@ -42,6 +42,7 @@ Examples:
   news-radar --dry-run       Run pipeline but skip saving and delivery
   news-radar --setup         Launch the interactive setup wizard
   news-radar --status        Show last run info and current configuration
+  news-radar --briefing      Print the most recent briefing to the terminal
   news-radar --version       Print version and exit
 
   # Combine with log level:
@@ -80,6 +81,11 @@ Examples:
         "--check",
         action="store_true",
         help="Validate configuration, sources.json, and API keys. Exit 0 if all OK.",
+    )
+    action.add_argument(
+        "--briefing",
+        action="store_true",
+        help="Print the most recent stored briefing to the terminal in Rich format.",
     )
 
     # Optional modifiers
@@ -417,10 +423,99 @@ async def _handle_run(
     return 0
 
 
+# ---------------------------------------------------------------------------
+# --briefing handler
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+
+def _handle_briefing(settings: "Settings", log: object) -> None:
+    """
+    Load and pretty-print the most recent briefing using Rich.
+
+    Prints:
+      - Briefing date and executive summary
+      - Per-topic-cluster story groups with headlines and AI summaries
+      - Footer stats (total fetched, scored, generated_at)
+    """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.rule import Rule
+    from rich.text import Text
+    from rich import print as rprint
+
+    from src.storage.briefing_store import BriefingStore
+    from src.briefing import BriefingBuilder
+
+    console = Console()
+    store = BriefingStore(settings.data_dir)
+    briefing = store.load_latest()
+
+    if briefing is None:
+        console.print(
+            "[yellow]No briefing found.[/yellow] "
+            "Run [bold]news-radar --run[/bold] to generate one."
+        )
+        return
+
+    # ---- Header ----
+    console.print()
+    console.print(Rule(f"[bold cyan]📡 News Radar Briefing — {briefing.date}[/bold cyan]"))
+    console.print()
+
+    # ---- Executive summary ----
+    if briefing.executive_summary:
+        console.print(
+            Panel(
+                briefing.executive_summary,
+                title="[bold]Executive Summary[/bold]",
+                border_style="cyan",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+
+    # ---- Topic clusters ----
+    clusters = BriefingBuilder.cluster_items(briefing.items, top_n=5)
+
+    if clusters:
+        console.print(Rule("[bold]Stories by Topic[/bold]"))
+        console.print()
+        for cluster in clusters:
+            console.print(f"[bold magenta]▸ {cluster.name}[/bold magenta] ({cluster.size} {'story' if cluster.size == 1 else 'stories'})")  # noqa: E501
+            for si in cluster.items:
+                score = si.scored.ai_score
+                headline = si.ai_headline or si.title
+                source = si.scored.item.source_name
+                summary_text = (si.ai_summary or "")[:120].rstrip()
+                if summary_text and len(si.ai_summary or "") > 120:
+                    summary_text += "…"
+                console.print(f"  [bold]{headline}[/bold] [dim]({source} · {score}/10)[/dim]")
+                if summary_text:
+                    console.print(f"  [dim]{summary_text}[/dim]")
+                console.print(f"  [link={si.scored.item.url}]{si.scored.item.url}[/link]")
+                console.print()
+    else:
+        # No clusters → flat list
+        console.print(Rule("[bold]Stories[/bold]"))
+        console.print()
+        for si in briefing.items:
+            headline = si.ai_headline or si.title
+            score = si.scored.ai_score
+            console.print(f"  [bold]{headline}[/bold] [dim]({si.scored.item.source_name} · {score}/10)[/dim]")
+            console.print(f"  [link={si.scored.item.url}]{si.scored.item.url}[/link]")
+            console.print()
+
+    # ---- Footer ----
+    console.print(Rule())
+    topics_str = ", ".join(briefing.top_topics) or "(none)"
+    console.print(
+        f"[dim]Top topics: {topics_str}  |  "
+        f"{briefing.total_fetched} fetched · {briefing.total_scored} scored · "
+        f"{len(briefing.items)} in briefing  |  "
+        f"Generated: {briefing.generated_at.strftime('%Y-%m-%d %H:%M UTC')}[/dim]"
+    )
+    console.print()
+
 
 
 def main() -> None:
@@ -457,6 +552,9 @@ def main() -> None:
     try:
         if args.status:
             _handle_status(settings, log)
+
+        elif args.briefing:
+            _handle_briefing(settings, log)
 
         elif args.setup:
             _handle_setup(log)
