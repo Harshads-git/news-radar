@@ -38,15 +38,21 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  news-radar --run           Run the full pipeline (fetch → score → summarize → deliver)
-  news-radar --dry-run       Run pipeline but skip saving and delivery
-  news-radar --setup         Launch the interactive setup wizard
-  news-radar --status        Show last run info and current configuration
-  news-radar --briefing      Print the most recent briefing to the terminal
-  news-radar --version       Print version and exit
+  news-radar --run              Run the full pipeline (fetch → score → summarize → deliver)
+  news-radar --dry-run          Run pipeline but skip saving and delivery
+  news-radar --setup            Launch the interactive setup wizard
+  news-radar --status           Show last run info and current configuration
+  news-radar --briefing         Print the most recent briefing to the terminal
+  news-radar --sources-list     Display all configured sources with status
+  news-radar --config           Show full configuration and active delivery channels
+  news-radar --check            Validate config and API keys (exit 0 if OK)
+  news-radar --version          Print version and exit
 
-  # Combine with log level:
-  news-radar --run --log-level DEBUG
+  # Advanced:
+  news-radar --run --date 2026-07-10        Re-run pipeline for a specific date
+  news-radar --run --no-enrich             Skip web context fetching (faster)
+  news-radar --run --log-level DEBUG       Verbose pipeline output
+  news-radar --dry-run --sources custom.json  Test with a different sources file
 """,
     )
 
@@ -86,6 +92,17 @@ Examples:
         "--briefing",
         action="store_true",
         help="Print the most recent stored briefing to the terminal in Rich format.",
+    )
+    action.add_argument(
+        "--sources-list",
+        dest="sources_list",
+        action="store_true",
+        help="Display all configured news sources with type, status, and item limit.",
+    )
+    action.add_argument(
+        "--config",
+        action="store_true",
+        help="Show full configuration: all settings, directories, and delivery channel status.",
     )
 
     # Optional modifiers
@@ -517,6 +534,231 @@ def _handle_briefing(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --sources-list handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_sources_list(settings: "Settings", log: object) -> None:
+    """
+    Display all configured news sources in a Rich table.
+
+    Shows for each source:
+      - Source ID
+      - Type (rss / hackernews / reddit / github)
+      - Display Name
+      - Enabled / disabled status
+      - Item limit (max stories to fetch)
+      - Tags
+      - URL or subreddit (where applicable)
+
+    Reads from settings.sources_file. If the file does not exist,
+    prints a helpful message prompting the user to run --setup.
+    """
+    import json
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+
+    console = Console()
+    sources_path = settings.sources_file
+
+    console.print()
+    console.print(Rule(f"[bold cyan]📡 Configured Sources — {sources_path}[/bold cyan]"))
+    console.print()
+
+    if not sources_path.exists():
+        console.print(
+            f"[yellow]Sources file not found:[/yellow] {sources_path}\n"
+            "Run [bold]news-radar --setup[/bold] to create it."
+        )
+        return
+
+    try:
+        raw = json.loads(sources_path.read_text(encoding="utf-8"))
+        sources = raw.get("sources", [])
+    except Exception as e:
+        console.print(f"[red]Failed to read sources file:[/red] {e}")
+        return
+
+    if not sources:
+        console.print("[dim]No sources configured.[/dim]")
+        return
+
+    table = Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        row_styles=["", "dim"],
+    )
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Type", min_width=11)
+    table.add_column("Name", min_width=18)
+    table.add_column("Status", min_width=8, justify="center")
+    table.add_column("Limit", min_width=5, justify="right")
+    table.add_column("Tags", min_width=14)
+    table.add_column("URL / Subreddit", overflow="fold")
+
+    enabled_count = 0
+    for src in sources:
+        enabled = src.get("enabled", True)
+        if enabled:
+            enabled_count += 1
+
+        status = "[green]● enabled[/green]" if enabled else "[red]○ disabled[/red]"
+        tags = ", ".join(src.get("tags", [])) or "[dim]—[/dim]"
+        limit = str(src.get("limit", 30))
+
+        src_type = src.get("type", "?")
+        if src_type == "reddit":
+            location = f"r/{src.get('subreddit', '?')} ({src.get('sort', 'hot')})"
+        elif src_type == "hackernews":
+            location = "[dim]HN API[/dim]"
+        elif src_type == "github":
+            location = "[dim]GitHub Trending[/dim]"
+        else:
+            url = src.get("url", "")
+            location = url if url else "[dim]—[/dim]"
+
+        table.add_row(
+            src.get("id", "?"),
+            src_type,
+            src.get("name", "?"),
+            status,
+            limit,
+            tags,
+            location,
+        )
+
+    console.print(table)
+    console.print()
+    console.print(
+        f"[dim]{enabled_count}/{len(sources)} sources enabled  •  "
+        f"Edit [bold]{sources_path}[/bold] to add or disable sources[/dim]"
+    )
+    console.print()
+
+
+# ---------------------------------------------------------------------------
+# --config handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_config(settings: "Settings", log: object) -> None:
+    """
+    Display the full current configuration in a structured Rich layout.
+
+    Organised into sections:
+      1. Core Pipeline settings (model, threshold, limits, language)
+      2. Storage & Paths (data dir, briefings dir, cache dir, docs dir)
+      3. AI Provider status (which keys are present, active provider)
+      4. Delivery Channels (email, Discord, Slack, webhook, GitHub Pages)
+      5. Advanced (log level, user interests)
+
+    Values come from settings (environment / .env file). API keys are
+    shown as present/missing without exposing the actual key value.
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+    from rich.columns import Columns
+    from rich.panel import Panel
+
+    console = Console()
+    s = settings
+
+    console.print()
+    console.print(Rule("[bold cyan]📡 News Radar Configuration[/bold cyan]"))
+    console.print()
+
+    # ---- Section 1: Core pipeline ----
+    core = Table(title="⚙️  Pipeline", show_header=False, box=None, padding=(0, 2))
+    core.add_column("Setting", style="dim", min_width=24)
+    core.add_column("Value", style="white")
+    core.add_row("AI Model", f"[bold]{s.ai_model}[/bold]")
+    core.add_row("Active Provider", s.active_model_provider)
+    core.add_row("Score Threshold", f"{s.score_threshold} / 10")
+    core.add_row("Max Briefing Items", str(s.max_briefing_items))
+    core.add_row("Output Language", s.output_language)
+    console.print(core)
+    console.print()
+
+    # ---- Section 2: Storage & Paths ----
+    paths = Table(title="📁  Storage & Paths", show_header=False, box=None, padding=(0, 2))
+    paths.add_column("Name", style="dim", min_width=24)
+    paths.add_column("Path", style="white")
+
+    def _path_status(p: "Path") -> str:
+        from pathlib import Path as P
+        pp = P(p)
+        return f"{pp}  [green]✓[/green]" if pp.exists() else f"{pp}  [dim](not yet created)[/dim]"
+
+    paths.add_row("Sources File", _path_status(s.sources_file))
+    paths.add_row("Data Dir", _path_status(s.data_dir))
+    paths.add_row("Briefings Dir", _path_status(s.briefings_dir))
+    paths.add_row("Cache Dir", _path_status(s.cache_dir))
+    paths.add_row("Docs Dir", _path_status(s.docs_dir))
+    console.print(paths)
+    console.print()
+
+    # ---- Section 3: AI Provider Keys ----
+    ai = Table(title="🤖  AI Provider Keys", show_header=False, box=None, padding=(0, 2))
+    ai.add_column("Provider", style="dim", min_width=24)
+    ai.add_column("Status", style="white")
+
+    def _key_status(present: bool, label: str) -> str:
+        return f"[green]● configured[/green]  ({label})" if present else "[red]○ not set[/red]"
+
+    ai.add_row("OpenAI", _key_status(s.has_openai, "OPENAI_API_KEY"))
+    ai.add_row("Google Gemini", _key_status(s.has_gemini, "GEMINI_API_KEY"))
+    ai.add_row("Anthropic Claude", _key_status(s.has_anthropic, "ANTHROPIC_API_KEY"))
+    console.print(ai)
+    console.print()
+
+    # ---- Section 4: Delivery Channels ----
+    delivery = Table(title="📬  Delivery Channels", show_header=False, box=None, padding=(0, 2))
+    delivery.add_column("Channel", style="dim", min_width=24)
+    delivery.add_column("Status", style="white")
+
+    def _delivery(active: bool, hint: str = "") -> str:
+        if active:
+            return "[green]● active[/green]"
+        note = f"  [dim]({hint})[/dim]" if hint else ""
+        return f"[dim]○ inactive[/dim]{note}"
+
+    delivery.add_row("Email (SMTP)", _delivery(s.has_email, "set SMTP_USER + SMTP_PASSWORD + EMAIL_TO"))
+    delivery.add_row("Discord Webhook", _delivery(s.has_discord, "set DISCORD_WEBHOOK_URL"))
+    delivery.add_row("Slack Webhook", _delivery(s.has_slack, "set SLACK_WEBHOOK_URL"))
+    delivery.add_row(
+        "Custom Webhook",
+        _delivery(bool(s.custom_webhook_url), "set CUSTOM_WEBHOOK_URL"),
+    )
+    delivery.add_row(
+        "GitHub Pages",
+        "[green]● enabled[/green]" if s.github_pages_enabled else "[dim]○ disabled[/dim]",
+    )
+    console.print(delivery)
+    console.print()
+
+    # ---- Section 5: User Interests & Logging ----
+    adv = Table(title="🔧  Advanced", show_header=False, box=None, padding=(0, 2))
+    adv.add_column("Setting", style="dim", min_width=24)
+    adv.add_column("Value", style="white")
+    adv.add_row("Log Level", s.log_level)
+    # Truncate very long interests for display
+    interests_display = s.user_interests
+    if len(interests_display) > 80:
+        interests_display = interests_display[:77] + "..."
+    adv.add_row("User Interests", interests_display)
+    console.print(adv)
+
+    console.print()
+    console.print(
+        "[dim]Settings are loaded from [bold].env[/bold] in the project root. "
+        "Run [bold]news-radar --setup[/bold] to reconfigure.[/dim]"
+    )
+    console.print()
+
 
 def main() -> None:
     """
@@ -558,6 +800,12 @@ def main() -> None:
 
         elif args.setup:
             _handle_setup(log)
+
+        elif args.sources_list:
+            _handle_sources_list(settings, log)
+
+        elif args.config:
+            _handle_config(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)
