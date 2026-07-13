@@ -45,6 +45,7 @@ Examples:
   news-radar --briefing         Print the most recent briefing to the terminal
   news-radar --sources-list     Display all configured sources with status
   news-radar --config           Show full configuration and active delivery channels
+  news-radar --source-stats     Show per-source fetch health and error history
   news-radar --check            Validate config and API keys (exit 0 if OK)
   news-radar --version          Print version and exit
 
@@ -103,6 +104,12 @@ Examples:
         "--config",
         action="store_true",
         help="Show full configuration: all settings, directories, and delivery channel status.",
+    )
+    action.add_argument(
+        "--source-stats",
+        dest="source_stats",
+        action="store_true",
+        help="Show per-source fetch health: attempts, errors, consecutive failures, and item counts.",
     )
 
     # Optional modifiers
@@ -760,6 +767,130 @@ def _handle_config(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --source-stats handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_source_stats(settings: "Settings", log: object) -> None:
+    """
+    Display per-source fetch health statistics using a Rich table.
+
+    Reads from ``data/source_health.jsonl`` (written by the pipeline on
+    every run). Shows for the last 30 days:
+      - Source ID
+      - Total fetch attempts
+      - Total successes / errors
+      - Success rate (colour-coded: green ≥90%, yellow ≥70%, red <70%)
+      - Average items per successful fetch
+      - Consecutive error streak (red if ≥ threshold)
+      - Last recorded error (truncated)
+      - Last seen date
+
+    If no data exists yet, prompts the user to run the pipeline first.
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+
+    from src.pipeline.source_health import (
+        SourceHealthTracker,
+        CONSECUTIVE_ERROR_THRESHOLD,
+    )
+
+    console = Console()
+    health = SourceHealthTracker(settings.data_dir)
+    summary = health.source_summary(days=30)
+
+    console.print()
+    console.print(Rule("[bold cyan]📡 Source Health Statistics (last 30 days)[/bold cyan]"))
+    console.print()
+
+    if not summary:
+        console.print(
+            "[yellow]No source health data found.[/yellow]\n"
+            "Run [bold]news-radar --run[/bold] to collect statistics."
+        )
+        console.print()
+        return
+
+    table = Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        row_styles=["", "dim"],
+    )
+    table.add_column("Source ID", style="cyan", no_wrap=True)
+    table.add_column("Attempts", justify="right", min_width=8)
+    table.add_column("OK / Err", justify="right", min_width=9)
+    table.add_column("Rate", justify="right", min_width=7)
+    table.add_column("Avg Items", justify="right", min_width=9)
+    table.add_column("Consec Err", justify="right", min_width=10)
+    table.add_column("Last Seen", min_width=10)
+    table.add_column("Last Error", overflow="fold", min_width=20)
+
+    for source_id, stats in sorted(summary.items()):
+        rate = stats["success_rate"]
+        rate_str = f"{rate:.0%}"
+        if rate >= 0.9:
+            rate_colored = f"[green]{rate_str}[/green]"
+        elif rate >= 0.7:
+            rate_colored = f"[yellow]{rate_str}[/yellow]"
+        else:
+            rate_colored = f"[red]{rate_str}[/red]"
+
+        consec = stats["consecutive_errors"]
+        if consec >= CONSECUTIVE_ERROR_THRESHOLD:
+            consec_str = f"[bold red]{consec} ⚠[/bold red]"
+        elif consec > 0:
+            consec_str = f"[yellow]{consec}[/yellow]"
+        else:
+            consec_str = "[green]0[/green]"
+
+        ok_err = f"{stats['total_successes']} / {stats['total_errors']}"
+        last_error = stats.get("last_error") or "[dim]—[/dim]"
+        if last_error and len(last_error) > 50:
+            last_error = last_error[:47] + "..."
+
+        table.add_row(
+            source_id,
+            str(stats["total_attempts"]),
+            ok_err,
+            rate_colored,
+            f"{stats['avg_items']:.1f}",
+            consec_str,
+            stats.get("last_seen", "?"),
+            last_error,
+        )
+
+    console.print(table)
+    console.print()
+
+    # Summary line
+    total_sources = len(summary)
+    healthy = sum(1 for s in summary.values() if s["consecutive_errors"] == 0)
+    at_risk = sum(
+        1 for s in summary.values()
+        if 0 < s["consecutive_errors"] < CONSECUTIVE_ERROR_THRESHOLD
+    )
+    disabled_candidates = sum(
+        1 for s in summary.values()
+        if s["consecutive_errors"] >= CONSECUTIVE_ERROR_THRESHOLD
+    )
+
+    parts = [f"[dim]{total_sources} sources tracked"]
+    parts.append(f"[green]{healthy} healthy[/green]")
+    if at_risk:
+        parts.append(f"[yellow]{at_risk} at risk[/yellow]")
+    if disabled_candidates:
+        parts.append(
+            f"[bold red]{disabled_candidates} should be disabled[/bold red] "
+            f"(≥{CONSECUTIVE_ERROR_THRESHOLD} consecutive errors)"
+        )
+    console.print("  " + "  •  ".join(parts) + "[/dim]")
+    console.print()
+
+
 def main() -> None:
     """
     Main entry point — called by the ``news-radar`` script and by
@@ -806,6 +937,9 @@ def main() -> None:
 
         elif args.config:
             _handle_config(settings, log)
+
+        elif args.source_stats:
+            _handle_source_stats(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)

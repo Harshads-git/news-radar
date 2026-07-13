@@ -45,6 +45,7 @@ from src.briefing import BriefingBuilder
 from src.delivery.dispatcher import DeliveryDispatcher
 from src.deduplicator import Deduplicator
 from src.logger import get_logger
+from src.pipeline.source_health import SourceHealthTracker
 from src.renderers.github_pages import GitHubPagesWriter
 from src.scrapers import ScraperFactory
 from src.setup.sources_loader import load_sources
@@ -250,7 +251,7 @@ class Orchestrator:
     async def _stage_fetch(
         self, stats: RunStats, sources_override: Path | None
     ) -> list["NewsItem"]:
-        """Stage 1: Run all scrapers concurrently."""
+        """Stage 1: Run all scrapers concurrently with per-source health tracking."""
         # TODO(#12): investigate connection pooling - currently each scraper
         # creates its own httpx client, which means 14 separate TCP handshakes
         # even with asyncio.gather. Should use a shared AsyncClient.
@@ -263,37 +264,59 @@ class Orchestrator:
         log.section("Stage 1: Fetching")
         log.info("Running %d scrapers", len(enabled))
 
-        # Build and run all scrapers concurrently
-        scraper_tasks = []
+        # Initialise health tracker — loads previous consecutive-error state
+        health = SourceHealthTracker(self.settings.data_dir)
+
+        # Warn about sources already approaching the disable threshold
+        from src.pipeline.source_health import CONSECUTIVE_ERROR_THRESHOLD
+        for src in enabled:
+            if health.should_disable(src.id):
+                log.warning(
+                    "Source '%s' has reached %d consecutive errors — "
+                    "consider disabling it in sources.json",
+                    src.id,
+                    CONSECUTIVE_ERROR_THRESHOLD,
+                )
+
+        # Build scraper tasks, pairing each with its source config
+        scraper_pairs: list[tuple[object, object]] = []  # (scraper, source_config)
         for src in enabled:
             try:
                 scraper = ScraperFactory.create(src)
-                scraper_tasks.append(scraper.fetch())
+                scraper_pairs.append((scraper, src))
             except Exception as e:
                 log.warning("Could not create scraper for '%s': %s", src.id, e)
                 stats.errors.append(f"Scraper creation failed for {src.id}: {e}")
+                health.record_error(src.id, str(e))
 
-        if not scraper_tasks:
+        if not scraper_pairs:
             log.warning("No scrapers could be created")
             stats.fetched = 0
             stats.t_fetch = time.monotonic() - t0
+            health.flush()
             return []
 
         # Gather results — continue even if some scrapers fail
+        scraper_tasks = [s.fetch() for s, _ in scraper_pairs]
         results = await asyncio.gather(*scraper_tasks, return_exceptions=True)
 
         all_items: list["NewsItem"] = []
-        for i, result in enumerate(results):
+        for (_, src), result in zip(scraper_pairs, results):
             if isinstance(result, Exception):
-                src_name = enabled[i].name if i < len(enabled) else f"source[{i}]"
-                log.warning("Scraper '%s' failed: %s", src_name, result)
-                stats.errors.append(f"Scraper {src_name}: {result}")
+                log.warning("Scraper '%s' failed: %s", src.name, result)
+                stats.errors.append(f"Scraper {src.name}: {result}")
+                health.record_error(src.id, str(result))
             elif isinstance(result, list):
+                health.record_success(src.id, item_count=len(result))
                 all_items.extend(result)
 
         stats.fetched = len(all_items)
         stats.t_fetch = time.monotonic() - t0
         log.success("Fetched %d items in %.1fs", stats.fetched, stats.t_fetch)
+
+        # Persist health stats for this run
+        health.flush()
+
         return all_items
 
     def _stage_dedup(
