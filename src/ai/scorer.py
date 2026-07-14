@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from src.models import NewsItem, ScoredItem
     from src.scoring.rubric import RubricScorer
     from src.scoring.history import ScoreHistory
+    from src.storage.score_cache import ScoreCache
 
 log = get_logger(__name__)
 
@@ -64,6 +65,7 @@ class NewsScorer:
         concurrency: int = _DEFAULT_CONCURRENCY,
         rubric: "RubricScorer | None" = None,
         history: "ScoreHistory | None" = None,
+        cache: "ScoreCache | None" = None,
     ) -> None:
         """
         Parameters
@@ -80,12 +82,16 @@ class NewsScorer:
         history:
             Optional ScoreHistory for persisting scores to JSONL.
             If None, scores are not persisted.
+        cache:
+            Optional ScoreCache. If provided, previously scored URLs are
+            returned from cache instead of calling the AI API again.
         """
         self.provider = provider
         self.settings = settings
         self.concurrency = concurrency
         self.rubric = rubric
         self.history = history
+        self.cache = cache
         self._semaphore = asyncio.Semaphore(concurrency)
 
     async def score_all(
@@ -120,10 +126,21 @@ class NewsScorer:
         log.section("Phase 2: AI Scoring")
         log.info("Scoring %d items (threshold=%d)", len(items), self.settings.score_threshold)
 
-        # Score all items concurrently
+        # Score all items concurrently (cache-aware)
         scored = await asyncio.gather(
             *[self._score_one(item, fetch_context=fetch_context) for item in items]
         )
+
+        # Log cache performance if cache is active
+        if self.cache is not None:
+            cs = self.cache.stats()
+            log.info(
+                "Score cache: %d hits, %d misses (hit rate %.0f%%)",
+                cs["hit_count"],
+                cs["miss_count"],
+                cs["hit_rate"] * 100,
+            )
+            self.cache.save()
 
         # Apply rubric re-ranking if configured
         if self.rubric is not None:
@@ -190,7 +207,21 @@ class NewsScorer:
         *,
         fetch_context: bool = True,
     ) -> "ScoredItem":
-        """Score a single item under the concurrency semaphore."""
+        """Score a single item, checking the cache first."""
+        # Cache lookup: skip AI call if we have a fresh cached score
+        if self.cache is not None:
+            entry = self.cache.get(item.url)
+            if entry is not None:
+                # Reconstruct a ScoredItem from the cached entry
+                from src.models import ScoredItem
+                cached_scored = ScoredItem(
+                    item=item,
+                    ai_score=entry.ai_score,
+                    ai_topics=entry.ai_topics,
+                )
+                log.debug("Cache hit for: %s", item.url[:60])
+                return cached_scored
+
         async with self._semaphore:
             web_context = ""
             if fetch_context:
@@ -200,11 +231,17 @@ class NewsScorer:
                 except Exception:
                     pass  # Context is best-effort; never block scoring
 
-            return await self.provider.score_item(
+            result = await self.provider.score_item(
                 item,
                 self.settings.user_interests,
                 web_context=web_context,
             )
+
+        # Write result to cache for future runs
+        if self.cache is not None:
+            self.cache.put(result)
+
+        return result
 
     async def score_single(
         self,

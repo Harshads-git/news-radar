@@ -46,6 +46,7 @@ Examples:
   news-radar --sources-list     Display all configured sources with status
   news-radar --config           Show full configuration and active delivery channels
   news-radar --source-stats     Show per-source fetch health and error history
+  news-radar --cache-stats      Show AI score cache hit rate, size, and TTL
   news-radar --check            Validate config and API keys (exit 0 if OK)
   news-radar --version          Print version and exit
 
@@ -110,6 +111,12 @@ Examples:
         dest="source_stats",
         action="store_true",
         help="Show per-source fetch health: attempts, errors, consecutive failures, and item counts.",
+    )
+    action.add_argument(
+        "--cache-stats",
+        dest="cache_stats",
+        action="store_true",
+        help="Show AI score cache statistics: hit rate, entry count, file size, and TTL.",
     )
 
     # Optional modifiers
@@ -891,6 +898,132 @@ def _handle_source_stats(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --cache-stats handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_cache_stats(settings: "Settings", log: object) -> None:
+    """
+    Display AI score cache statistics using Rich.
+
+    Shows:
+      - Cache file path and existence
+      - Entry count (valid vs expired)
+      - Hit rate (colour-coded: green ≥50%, yellow ≥20%, red <20%)
+      - File size on disk
+      - TTL setting
+      - Top-10 most recently cached entries (url, score, topics, age)
+
+    If the cache file does not exist yet, prompts the user to run the pipeline.
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+    from rich.panel import Panel
+
+    from src.storage.score_cache import ScoreCache, DEFAULT_TTL_HOURS
+
+    console = Console()
+    cache = ScoreCache(settings.data_dir)
+    stats = cache.stats()
+
+    console.print()
+    console.print(Rule("[bold cyan]🗄️  AI Score Cache Statistics[/bold cyan]"))
+    console.print()
+
+    cache_path = settings.data_dir / "cache" / "score_cache.json"
+    if not cache_path.exists():
+        console.print(
+            "[yellow]Cache file not found.[/yellow]\n"
+            "Run [bold]news-radar --run[/bold] to populate the cache."
+        )
+        console.print()
+        return
+
+    # ---- Summary table ----
+    summary = Table(show_header=False, box=None, padding=(0, 2))
+    summary.add_column("Key", style="dim", min_width=22)
+    summary.add_column("Value", style="white")
+
+    summary.add_row("Cache File", str(cache_path))
+    summary.add_row("Valid Entries", str(stats["entry_count"]))
+    summary.add_row("Expired Entries", str(stats["expired_count"]))
+    summary.add_row("File Size", f"{stats['file_size_kb']:.1f} KB")
+    summary.add_row("TTL", f"{stats['ttl_hours']}h")
+
+    hit_rate = stats["hit_rate"]
+    hit_rate_str = f"{hit_rate:.0%}"
+    if hit_rate >= 0.5:
+        hit_rate_colored = f"[green]{hit_rate_str}[/green]"
+    elif hit_rate >= 0.2:
+        hit_rate_colored = f"[yellow]{hit_rate_str}[/yellow]"
+    else:
+        hit_rate_colored = f"[dim]{hit_rate_str}[/dim]"
+
+    summary.add_row("Hit Rate (this session)", hit_rate_colored)
+    summary.add_row("Hits / Misses", f"{stats['hit_count']} / {stats['miss_count']}")
+    console.print(summary)
+    console.print()
+
+    # ---- Entries table (top 15 by most recently cached) ----
+    with cache._lock:
+        all_entries = list(cache._store.values())
+
+    if not all_entries:
+        console.print("[dim]No entries in cache.[/dim]")
+        console.print()
+        return
+
+    # Sort by cached_at descending (most recent first)
+    valid_entries = [e for e in all_entries if not e.is_expired]
+    valid_entries.sort(key=lambda e: e.cached_at, reverse=True)
+    display_entries = valid_entries[:15]
+
+    entries_table = Table(
+        title="Most Recent Cache Entries",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+    )
+    entries_table.add_column("Score", justify="center", min_width=5)
+    entries_table.add_column("Age", justify="right", min_width=7)
+    entries_table.add_column("Hits", justify="right", min_width=4)
+    entries_table.add_column("Topics", min_width=16)
+    entries_table.add_column("URL", overflow="fold", min_width=30)
+
+    for entry in display_entries:
+        age_h = entry.age_hours
+        if age_h < 1:
+            age_str = f"{age_h * 60:.0f}m"
+        else:
+            age_str = f"{age_h:.1f}h"
+
+        score = entry.ai_score
+        score_colored = (
+            f"[green]{score}[/green]" if score >= 7
+            else f"[yellow]{score}[/yellow]" if score >= 4
+            else f"[dim]{score}[/dim]"
+        )
+        topics_str = ", ".join(entry.ai_topics[:3]) if entry.ai_topics else "[dim]—[/dim]"
+
+        entries_table.add_row(
+            score_colored,
+            age_str,
+            str(entry.hits),
+            topics_str,
+            entry.url,
+        )
+
+    console.print(entries_table)
+    console.print()
+    console.print(
+        f"[dim]Showing {len(display_entries)}/{len(valid_entries)} valid entries  •  "
+        f"Cache auto-expires after {DEFAULT_TTL_HOURS}h[/dim]"
+    )
+    console.print()
+
+
 def main() -> None:
     """
     Main entry point — called by the ``news-radar`` script and by
@@ -940,6 +1073,9 @@ def main() -> None:
 
         elif args.source_stats:
             _handle_source_stats(settings, log)
+
+        elif args.cache_stats:
+            _handle_cache_stats(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)
