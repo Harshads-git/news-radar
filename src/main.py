@@ -47,6 +47,7 @@ Examples:
   news-radar --config           Show full configuration and active delivery channels
   news-radar --source-stats     Show per-source fetch health and error history
   news-radar --cache-stats      Show AI score cache hit rate, size, and TTL
+  news-radar --cost-report      Show AI API cost report: daily and weekly spend
   news-radar --check            Validate config and API keys (exit 0 if OK)
   news-radar --version          Print version and exit
 
@@ -117,6 +118,12 @@ Examples:
         dest="cache_stats",
         action="store_true",
         help="Show AI score cache statistics: hit rate, entry count, file size, and TTL.",
+    )
+    action.add_argument(
+        "--cost-report",
+        dest="cost_report",
+        action="store_true",
+        help="Show AI API cost report: daily and weekly spend from cost_log.jsonl.",
     )
 
     # Optional modifiers
@@ -1024,6 +1031,137 @@ def _handle_cache_stats(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --cost-report handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_cost_report(settings: "Settings", log: object) -> None:
+    """
+    Display AI API cost report using Rich tables.
+
+    Shows:
+      1. 30-day daily spend table (date, runs, tokens, calls, cost)
+      2. 4-week weekly summary table
+      3. 30-day total spend footer
+
+    Cost values are colour-coded by relative daily spend:
+      - Green  : ≤ avg spend / 2  (cheap day)
+      - Yellow : ≤ avg spend × 1.5
+      - Red    : > avg spend × 1.5 (expensive day)
+
+    If cost_log.jsonl does not exist yet, prompts the user to run the pipeline.
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+
+    from src.pipeline.cost_ledger import CostLedger
+
+    console = Console()
+    ledger = CostLedger(settings.data_dir)
+
+    console.print()
+    console.print(Rule("[bold cyan]💰  AI Cost Report[/bold cyan]"))
+    console.print()
+
+    ledger_path = settings.data_dir / "cost_log.jsonl"
+    if not ledger_path.exists():
+        console.print(
+            "[yellow]No cost data found.[/yellow]\n"
+            "Run [bold]news-radar --run[/bold] to start tracking costs."
+        )
+        console.print()
+        return
+
+    # ---- Daily report ----
+    daily = ledger.daily_report(days=30)
+    if not daily:
+        console.print("[dim]No cost entries in the last 30 days.[/dim]")
+        console.print()
+        return
+
+    # Compute average daily cost for colour-coding
+    avg_cost = sum(r["cost_usd"] for r in daily) / len(daily) if daily else 0.0
+
+    daily_table = Table(
+        title="Daily Spend (last 30 days)",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+    )
+    daily_table.add_column("Date", min_width=12)
+    daily_table.add_column("Runs", justify="right", min_width=5)
+    daily_table.add_column("Tokens", justify="right", min_width=9)
+    daily_table.add_column("Calls", justify="right", min_width=7)
+    daily_table.add_column("Cost (USD)", justify="right", min_width=11)
+    daily_table.add_column("Dry", justify="center", min_width=4)
+
+    for row in daily:
+        cost = row["cost_usd"]
+        cost_str = f"${cost:.6f}"
+        if avg_cost > 0 and cost > avg_cost * 1.5:
+            cost_col = f"[red]{cost_str}[/red]"
+        elif avg_cost > 0 and cost > avg_cost / 2:
+            cost_col = f"[yellow]{cost_str}[/yellow]"
+        else:
+            cost_col = f"[green]{cost_str}[/green]"
+
+        dry_col = f"[dim]{row['dry_runs']}[/dim]" if row["dry_runs"] else "[dim]—[/dim]"
+
+        daily_table.add_row(
+            row["date"],
+            str(row["runs"]),
+            f"{row['total_tokens']:,}",
+            str(row["total_calls"]),
+            cost_col,
+            dry_col,
+        )
+
+    console.print(daily_table)
+    console.print()
+
+    # ---- Weekly summary ----
+    weekly = ledger.weekly_summary(weeks=4)
+    if weekly:
+        week_table = Table(
+            title="Weekly Summary (last 4 weeks)",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="dim",
+        )
+        week_table.add_column("Week", min_width=10)
+        week_table.add_column("Runs", justify="right", min_width=5)
+        week_table.add_column("Tokens", justify="right", min_width=9)
+        week_table.add_column("Cost (USD)", justify="right", min_width=11)
+
+        for row in weekly:
+            week_table.add_row(
+                row["week"],
+                str(row["runs"]),
+                f"{row['total_tokens']:,}",
+                f"${row['cost_usd']:.6f}",
+            )
+
+        console.print(week_table)
+        console.print()
+
+    # ---- 30-day total ----
+    total_30d = ledger.total_spend(days=30)
+    total_entries = ledger.load_entries(days=30)
+    total_runs = sum(1 for e in total_entries)
+    total_tokens = sum(e.get("total_tokens", 0) for e in total_entries)
+
+    console.print(
+        f"  [dim]30-day total: [bold]${total_30d:.6f}[/bold]  "
+        f"({total_runs} runs · {total_tokens:,} tokens)[/dim]"
+    )
+    console.print(
+        f"  [dim]Cost log: {ledger_path}[/dim]"
+    )
+    console.print()
+
+
 def main() -> None:
     """
     Main entry point — called by the ``news-radar`` script and by
@@ -1076,6 +1214,9 @@ def main() -> None:
 
         elif args.cache_stats:
             _handle_cache_stats(settings, log)
+
+        elif args.cost_report:
+            _handle_cost_report(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)

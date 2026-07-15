@@ -45,6 +45,7 @@ from src.briefing import BriefingBuilder
 from src.delivery.dispatcher import DeliveryDispatcher
 from src.deduplicator import Deduplicator
 from src.logger import get_logger
+from src.pipeline.cost_ledger import CostLedger
 from src.pipeline.source_health import SourceHealthTracker
 from src.renderers.github_pages import GitHubPagesWriter
 from src.scrapers import ScraperFactory
@@ -119,6 +120,7 @@ class Orchestrator:
 
     def __init__(self, settings: "Settings") -> None:
         self.settings = settings
+        self._last_provider: object = None  # saved for CostLedger in _record_run
 
     async def run(
         self,
@@ -207,6 +209,7 @@ class Orchestrator:
 
         # ------ STAGE 3: SCORE ------
         provider = self._get_ai_provider()
+        self._last_provider = provider  # save for cost recording in _record_run
         scored_items = await self._stage_score(stats, deduped, provider)
 
         if not scored_items:
@@ -566,3 +569,16 @@ class Orchestrator:
             run_log_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
         except Exception as e:
             log.debug("Could not write run_log.json: %s", e)
+
+        # Persist AI cost to cost_log.jsonl for --cost-report CLI
+        if stats.ai_calls > 0 and self._last_provider is not None:
+            try:
+                ledger = CostLedger(self.settings.data_dir)
+                ledger.record(
+                    self._last_provider.cost_tracker,
+                    model=self.settings.ai_model,
+                    dry_run=stats.dry_run,
+                    run_id=stats.started_at,
+                )
+            except Exception as e:
+                log.debug("Could not write cost ledger: %s", e)
