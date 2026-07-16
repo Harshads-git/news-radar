@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from src.scoring.rubric import RubricScorer
     from src.scoring.history import ScoreHistory
     from src.storage.score_cache import ScoreCache
+    from src.pipeline.retry_budget import RetryBudget
 
 log = get_logger(__name__)
 
@@ -66,6 +67,7 @@ class NewsScorer:
         rubric: "RubricScorer | None" = None,
         history: "ScoreHistory | None" = None,
         cache: "ScoreCache | None" = None,
+        budget: "RetryBudget | None" = None,
     ) -> None:
         """
         Parameters
@@ -75,7 +77,8 @@ class NewsScorer:
         settings:
             App settings (used for score_threshold, user_interests).
         concurrency:
-            Max simultaneous AI calls. Default: 5.
+            Max simultaneous AI calls. Default: 5. Overridden by
+            budget.recommended_concurrency when a RetryBudget is provided.
         rubric:
             Optional RubricScorer for multi-factor composite score adjustment.
             If None, raw AI scores are used for ranking.
@@ -85,14 +88,24 @@ class NewsScorer:
         cache:
             Optional ScoreCache. If provided, previously scored URLs are
             returned from cache instead of calling the AI API again.
+        budget:
+            Optional RetryBudget for adaptive concurrency throttling and
+            circuit breaker. If provided, concurrency is taken from
+            budget.recommended_concurrency instead of the ``concurrency``
+            argument.
         """
         self.provider = provider
         self.settings = settings
-        self.concurrency = concurrency
         self.rubric = rubric
         self.history = history
         self.cache = cache
-        self._semaphore = asyncio.Semaphore(concurrency)
+        self.budget = budget
+        # Use budget's recommended concurrency if available
+        effective_concurrency = (
+            budget.recommended_concurrency if budget is not None else concurrency
+        )
+        self.concurrency = effective_concurrency
+        self._semaphore = asyncio.Semaphore(effective_concurrency)
 
     async def score_all(
         self,
@@ -141,6 +154,17 @@ class NewsScorer:
                 cs["hit_rate"] * 100,
             )
             self.cache.save()
+
+        # Log budget stats + flush events if budget is active
+        if self.budget is not None:
+            bs = self.budget.session_stats
+            log.info(
+                "Retry budget: %s | concurrency=%d | error_rate=%.0f%%",
+                bs["circuit_state"],
+                bs["recommended_concurrency"],
+                bs["error_rate"] * 100,
+            )
+            self.budget.flush()
 
         # Apply rubric re-ranking if configured
         if self.rubric is not None:
@@ -207,7 +231,7 @@ class NewsScorer:
         *,
         fetch_context: bool = True,
     ) -> "ScoredItem":
-        """Score a single item, checking the cache first."""
+        """Score a single item, checking the cache and circuit breaker first."""
         # Cache lookup: skip AI call if we have a fresh cached score
         if self.cache is not None:
             entry = self.cache.get(item.url)
@@ -222,6 +246,12 @@ class NewsScorer:
                 log.debug("Cache hit for: %s", item.url[:60])
                 return cached_scored
 
+        # Circuit breaker: fast-fail if provider is known-unavailable
+        if self.budget is not None and self.budget.is_open:
+            from src.models import ScoredItem
+            log.warning("Circuit breaker OPEN — skipping AI call for: %s", item.url[:60])
+            return ScoredItem(item=item, ai_score=0, ai_topics=[])
+
         async with self._semaphore:
             web_context = ""
             if fetch_context:
@@ -231,11 +261,20 @@ class NewsScorer:
                 except Exception:
                     pass  # Context is best-effort; never block scoring
 
-            result = await self.provider.score_item(
-                item,
-                self.settings.user_interests,
-                web_context=web_context,
-            )
+            try:
+                result = await self.provider.score_item(
+                    item,
+                    self.settings.user_interests,
+                    web_context=web_context,
+                )
+                # Record success in budget
+                if self.budget is not None:
+                    self.budget.record_success()
+            except Exception as e:
+                # Record failure in budget before re-raising
+                if self.budget is not None:
+                    self.budget.record_failure(type(e).__name__)
+                raise
 
         # Write result to cache for future runs
         if self.cache is not None:

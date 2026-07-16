@@ -48,6 +48,7 @@ Examples:
   news-radar --source-stats     Show per-source fetch health and error history
   news-radar --cache-stats      Show AI score cache hit rate, size, and TTL
   news-radar --cost-report      Show AI API cost report: daily and weekly spend
+  news-radar --retry-stats      Show circuit breaker events and throttle history
   news-radar --check            Validate config and API keys (exit 0 if OK)
   news-radar --version          Print version and exit
 
@@ -124,6 +125,12 @@ Examples:
         dest="cost_report",
         action="store_true",
         help="Show AI API cost report: daily and weekly spend from cost_log.jsonl.",
+    )
+    action.add_argument(
+        "--retry-stats",
+        dest="retry_stats",
+        action="store_true",
+        help="Show retry budget history: circuit breaker events and throttle changes.",
     )
 
     # Optional modifiers
@@ -1162,6 +1169,116 @@ def _handle_cost_report(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --retry-stats handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_retry_stats(settings: "Settings", log: object) -> None:
+    """
+    Display retry budget and circuit breaker history using Rich.
+
+    Shows:
+      - Current circuit state for the configured AI provider
+      - Event summary (throttle_down, throttle_up, circuit_open, circuit_close)
+      - Last 30 days of circuit events in a chronological table
+
+    If retry_budget.jsonl does not exist yet, prompts the user to run the pipeline.
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.rule import Rule
+
+    from src.pipeline.retry_budget import RetryBudget, CircuitState
+
+    console = Console()
+
+    # Use the configured AI model name as provider identifier
+    provider_name = getattr(settings, "ai_model", "openai").split("/")[-1]
+    budget = RetryBudget(settings.data_dir, provider_name=provider_name)
+
+    console.print()
+    console.print(Rule("[bold cyan]🔄  Retry Budget & Circuit Breaker History[/bold cyan]"))
+    console.print()
+
+    budget_path = settings.data_dir / "retry_budget.jsonl"
+    if not budget_path.exists():
+        console.print(
+            "[yellow]No retry budget history found.[/yellow]\n"
+            "Run [bold]news-radar --run[/bold] to start tracking circuit events."
+        )
+        console.print()
+        return
+
+    # ---- Event summary ----
+    summary = budget.event_summary(days=30)
+    if not summary:
+        console.print("[dim]No circuit events in the last 30 days.[/dim]")
+        console.print()
+        return
+
+    summary_table = Table(show_header=False, box=None, padding=(0, 2))
+    summary_table.add_column("Event", style="dim", min_width=22)
+    summary_table.add_column("Count", style="white")
+
+    event_styles = {
+        "circuit_open": "[bold red]",
+        "circuit_close": "[green]",
+        "circuit_half_open": "[yellow]",
+        "throttle_down": "[yellow]",
+        "throttle_up": "[green]",
+        "probe_success": "[green]",
+        "probe_failure": "[red]",
+    }
+    for event_type, count in sorted(summary.items()):
+        style = event_styles.get(event_type, "")
+        end = "[/]" if style else ""
+        label = event_type.replace("_", " ").title()
+        summary_table.add_row(label, f"{style}{count}{end}")
+
+    console.print(summary_table)
+    console.print()
+
+    # ---- Event history table ----
+    history = budget.load_history(days=30)
+
+    events_table = Table(
+        title="Circuit Events (last 30 days, newest first)",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+    )
+    events_table.add_column("Timestamp", min_width=20)
+    events_table.add_column("Provider", min_width=12)
+    events_table.add_column("Event", min_width=16)
+    events_table.add_column("Change", min_width=14)
+    events_table.add_column("Reason", overflow="fold")
+
+    for row in history[:40]:  # cap at 40 rows
+        et = row.get("event_type", "?")
+        style_open = event_styles.get(et, "")
+        style_close = "[/]" if style_open else ""
+
+        old_val = str(row.get("old_value", "?"))
+        new_val = str(row.get("new_value", "?"))
+        change = f"{old_val} → {new_val}"
+
+        events_table.add_row(
+            row.get("timestamp", "?"),
+            row.get("provider", "?"),
+            f"{style_open}{et}{style_close}",
+            change,
+            row.get("reason", ""),
+        )
+
+    console.print(events_table)
+    console.print()
+    console.print(
+        f"  [dim]Budget file: {budget_path}[/dim]"
+    )
+    console.print()
+
+
 def main() -> None:
     """
     Main entry point — called by the ``news-radar`` script and by
@@ -1217,6 +1334,9 @@ def main() -> None:
 
         elif args.cost_report:
             _handle_cost_report(settings, log)
+
+        elif args.retry_stats:
+            _handle_retry_stats(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)
