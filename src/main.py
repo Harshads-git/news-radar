@@ -49,6 +49,7 @@ Examples:
   news-radar --cache-stats      Show AI score cache hit rate, size, and TTL
   news-radar --cost-report      Show AI API cost report: daily and weekly spend
   news-radar --retry-stats      Show circuit breaker events and throttle history
+  news-radar --preview-email    Render latest briefing as email HTML, open in browser
   news-radar --check            Validate config and API keys (exit 0 if OK)
   news-radar --version          Print version and exit
 
@@ -131,6 +132,12 @@ Examples:
         dest="retry_stats",
         action="store_true",
         help="Show retry budget history: circuit breaker events and throttle changes.",
+    )
+    action.add_argument(
+        "--preview-email",
+        dest="preview_email",
+        action="store_true",
+        help="Render the latest briefing as an email HTML preview and open in browser.",
     )
 
     # Optional modifiers
@@ -1279,6 +1286,82 @@ def _handle_retry_stats(settings: "Settings", log: object) -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# --preview-email handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_preview_email(settings: "Settings", log: object) -> None:
+    """
+    Render the latest briefing as an email HTML preview and open in browser.
+
+    Steps:
+      1. Load the most recent briefing from the data store
+      2. Render it with render_email_html() (inline styles, table layout)
+      3. Save to data/email_preview.html
+      4. Open in the default system browser via webbrowser.open()
+      5. Print a Rich confirmation with the file path
+
+    If no briefing exists yet, instruct the user to run the pipeline.
+    """
+    import webbrowser
+    from rich.console import Console
+    from rich.rule import Rule
+
+    from src.delivery.email_template import render_email_html
+    from src.storage import BriefingStore
+
+    console = Console()
+    console.print()
+    console.print(Rule("[bold cyan]\U0001f4e7  Email Preview[/bold cyan]"))
+    console.print()
+
+    store = BriefingStore(settings.data_dir)
+    briefing = store.load_latest()
+
+    if briefing is None:
+        console.print(
+            "[yellow]No briefings found.[/yellow]\n"
+            "Run [bold]news-radar --run[/bold] first to generate a briefing."
+        )
+        console.print()
+        return
+
+    # Render with email-optimized template
+    html_str = render_email_html(briefing)
+
+    # Save preview file
+    preview_path = settings.data_dir / "email_preview.html"
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        preview_path.write_text(html_str, encoding="utf-8")
+    except OSError as e:
+        console.print(f"[red]Could not write preview file: {e}[/red]")
+        console.print()
+        return
+
+    # Open in browser
+    file_url = preview_path.resolve().as_uri()
+    opened = webbrowser.open(file_url)
+
+    # Summary
+    count = len(briefing.items)
+    console.print(
+        f"  [green]\u2713[/green] Email preview saved: [bold]{preview_path}[/bold]"
+    )
+    console.print(
+        f"  [dim]Date: {briefing.date} \u00b7 {count} stories[/dim]"
+    )
+    if opened:
+        console.print("  [dim]Opened in system browser.[/dim]")
+    else:
+        console.print(
+            f"  [yellow]Could not auto-open browser.[/yellow] "
+            f"Open manually: [bold]{file_url}[/bold]"
+        )
+    console.print()
+
+
 def main() -> None:
     """
     Main entry point — called by the ``news-radar`` script and by
@@ -1337,6 +1420,9 @@ def main() -> None:
 
         elif args.retry_stats:
             _handle_retry_stats(settings, log)
+
+        elif args.preview_email:
+            _handle_preview_email(settings, log)
 
         elif args.check:
             exit_code = _handle_check(settings, log)

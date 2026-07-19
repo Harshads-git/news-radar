@@ -13,7 +13,8 @@ Supported SMTP providers:
 
 Email structure (MIME multipart/alternative):
   - text/plain  ← plain text fallback for email clients without HTML
-  - text/html   ← full styled HTML briefing (same as GitHub Pages output)
+  - text/html   ← email-optimized inline-styled HTML (email_template.py)
+                  Uses table layout + inline styles for Outlook/Gmail compat.
 
 Subject line format:
   📡 News Radar — 2026-06-24 · 12 stories · Top: GPT-5 Launched
@@ -38,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from src.exceptions import DeliveryError
 from src.logger import get_logger
-from src.renderers.html import render_html
+from src.delivery.email_template import render_email_html
 from src.renderers.markdown import render_markdown
 
 if TYPE_CHECKING:
@@ -106,8 +107,8 @@ class EmailDelivery:
         plain_text = self._briefing_to_plain_text(briefing)
         msg.attach(MIMEText(plain_text, "plain", "utf-8"))
 
-        # HTML body (same renderer as GitHub Pages)
-        html_body = render_html(briefing)
+        # HTML body — email-optimized inline-styled renderer
+        html_body = render_email_html(briefing)
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         return msg
