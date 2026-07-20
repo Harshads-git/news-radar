@@ -91,7 +91,7 @@ jobs:
             --cov=src \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --cov-fail-under=65
+            --cov-fail-under=70
         env:
           # Dummy values to satisfy Pydantic settings validation in tests
           OPENAI_API_KEY: "test-key-ci"
