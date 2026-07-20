@@ -183,7 +183,11 @@ def _handle_version() -> None:
 
         ver = version("news-radar")
     except Exception:
-        ver = "0.1.0-dev"
+        try:
+            from src.__version__ import __version__
+            ver = __version__
+        except Exception:
+            ver = "1.0.0"
     print(f"news-radar {ver}")
 
 

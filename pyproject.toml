@@ -1,6 +1,6 @@
 [project]
 name = "news-radar"
-version = "0.1.0"
+version = "1.0.0"
 description = "📡 Your personal AI-powered news radar — fetch, score, and summarize daily briefings from RSS, Hacker News, and Reddit."
 readme = "README.md"
 license = "MIT"
@@ -74,7 +74,7 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
-    "--cov-fail-under=65",
+    "--cov-fail-under=70",
     "--strict-markers",
     "-q",
 ]
